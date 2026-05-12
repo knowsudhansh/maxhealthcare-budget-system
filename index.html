@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Max Healthcare IT OPEX Budget Dashboard</title>
+  <link rel="icon" type="image/png" sizes="96x96" href="https://www.maxhealthcare.in/img/icons/favicon-96x96.png?v=17770264255eafbbc5">
+  <meta name="theme-color" content="#073b72">
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script defer src="app-data.js"></script>
+  <script defer src="app-ui.js"></script>
+  <script defer src="app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js"></script>
+
+</head>
+<body>
+  <div class="app-shell" id="appShell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand-card">
+        <div class="sidebar-logo-panel">
+          <img src="https://www.maxhealthcare.in/img/brandLogoNew.svg" alt="Max Healthcare" class="sidebar-logo">
+        </div>
+        <div class="sidebar-brand-mark">✦</div>
+        <div class="sidebar-brand-copy">
+          <div class="sidebar-brand-eyebrow">Budget Workspace</div>
+          <div class="sidebar-brand-title">IT OPEX Dashboard</div>
+          <div class="sidebar-brand-subtitle">Planning, allocation, comparison, and reporting</div>
+        </div>
+      </div>
+
+      <nav class="sidebar-nav" aria-label="Primary">
+        <button type="button" class="sidebar-menu-btn active" data-view="dashboardView" aria-current="page">Dashboard</button>
+        <button type="button" class="sidebar-menu-btn" data-view="plannerView">Budget Planner</button>
+        <button type="button" class="sidebar-menu-btn" data-view="locationSummaryView">Location Summary</button>
+        <button type="button" class="sidebar-menu-btn" data-view="unitBudgetView">Unit Wise Budget</button>
+        <button type="button" class="sidebar-menu-btn" data-view="allocationView">Allocation-Fixed and % wise</button>
+        <button type="button" class="sidebar-menu-btn" data-view="utilizationView">Opex Budget Utilization</button>
+        <button type="button" class="sidebar-menu-btn" data-view="comparisonView">Comparison</button>
+        <button type="button" class="sidebar-menu-btn" data-view="reportView">Report</button>
+      </nav>
+
+      <div class="sidebar-footer-card">
+        <div class="sidebar-footer-label">CURRENT VIEW</div>
+        <div class="sidebar-footer-value" id="sidebarStatusValue">Ready</div>
+        <div class="sidebar-footer-note">Local budget workspace</div>
+      </div>
+    </aside>
+
+    <div class="app-main">
+      <header class="topbar card">
+        <div class="brand-lockup">
+          <div class="brand-logo-wrap">
+            <img src="https://www.maxhealthcare.in/img/brandLogoNew.svg" alt="Max Healthcare" class="brand-logo">
+          </div>
+          <div class="brand-mark">✦</div>
+          <div class="brand-title-block">
+            <div class="brand-eyebrow">Enterprise Finance Workspace</div>
+            <h1>IT OPEX Budget Dashboard
+            </h1>
+            <p id="topbarSubtitle">Enterprise view of planning, allocation, utilization, and reporting.</p>
+          </div>
+        </div>
+        <div class="topbar-meta">
+          <span class="pill" id="activeViewPill">Dashboard</span>
+          <span class="meta-note">Max Healthcare</span>
+        </div>
+      </header>
+
+      <main class="view-stack">
+        <section class="view active" id="dashboardView">
+          <div id="dashboardContent"></div>
+        </section>
+
+        <section class="view" id="plannerView">
+          <div id="plannerContent"></div>
+        </section>
+
+        <section class="view" id="locationSummaryView">
+          <div id="locationSummaryContent"></div>
+        </section>
+
+        <section class="view" id="unitBudgetView">
+          <div id="unitBudgetContent"></div>
+        </section>
+
+        <section class="view" id="allocationView">
+          <div id="allocationContent"></div>
+        </section>
+
+        <section class="view" id="utilizationView">
+          <div id="utilizationContent"></div>
+        </section>
+
+        <section class="view" id="comparisonView">
+          <div id="comparisonContent"></div>
+        </section>
+
+        <section class="view" id="reportView">
+          <div id="reportContent"></div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div class="footer-brand">
+          <img src="https://www.maxhealthcare.in/img/brandLogoNew.svg" alt="Max Healthcare" class="footer-logo">
+          <div>
+            <strong>IT OPEX Budget Management</strong>
+            <span>Planning, allocation, utilization, comparison, and reporting</span>
+          </div>
+        </div>
+        <div class="footer-meta">
+          <span id="footerViewName">Dashboard</span>
+          <span>Local workspace</span>
+        </div>
+      </footer>
+    </div>
+  </div>
+
+  <div id="datalistHost" class="hidden"></div>
+</body>
+</html>

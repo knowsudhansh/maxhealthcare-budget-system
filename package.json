@@ -1,0 +1,22 @@
+{
+  "name": "it-opex-budget-management",
+  "version": "1.0.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^4.22.1",
+    "googleapis": "^144.0.0",
+    "mysql2": "^3.22.3",
+    "xlsx": "^0.18.5"
+  },
+  "description": "Responsive web app to capture and compare IT Opex data across 22 locations.",
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs"
+}
