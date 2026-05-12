@@ -47,14 +47,14 @@ npm start
 
 ## 7. Health check
 Open:
-- `http://localhost:3000/api/health`
+- `https://maxhealthcare-budget-system-production.up.railway.app/api/budget-data`
 
 If MySQL is connected, response includes:
 - `mysql.configured = true`
 - `mysql.connected = true`
 
 ## Current DB-linked behavior
-The current backend writes `POST /api/budget-submissions` into:
+The current backend writes `POST "https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions"` into:
 - local Excel file
 - optional Google Sheet
 - MySQL table `budget_submissions` when `.env` is configured
