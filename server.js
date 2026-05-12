@@ -268,7 +268,7 @@ async function appendRowToGoogleSheet(row) {
   return appendResponse.data.updates ? appendResponse.data.updates.updatedRange : "";
 }
 
-app.post("/api/budget-submissions", async (req, res) => {
+app.fetch("https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions", async (req, res) => {
   try {
     const row = normalizeSubmission(req.body);
     if (!hasUserData(row)) {
@@ -327,7 +327,7 @@ app.use(express.static(__dirname));
 
 
 // SAVE data API
-app.post("/api/budget-submissions", (req, res) => {
+app.fetch("https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions", (req, res) => {
 
   const {
     coding,
