@@ -3,6 +3,23 @@
   const FILTER_ALL = "All";
   const WATCH_INTERVAL_MS = 5000;
 
+  const API_BASE = "https://maxhealthcare-budget-system-production.up.railway.app";
+
+async function loadDatabaseData() {
+  try {
+    const response = await fetch(`${API_BASE}/api/budget-data`);
+    const data = await response.json();
+
+    console.log("Database Data:", data);
+
+    return data;
+
+  } catch (error) {
+    console.error("API Error:", error);
+    return [];
+  }
+}
+
   const state = {
     data: null,
     charts: {},
@@ -26,13 +43,17 @@
 
   document.addEventListener("DOMContentLoaded", initDashboard);
 
-  function initDashboard() {
-    cacheElements();
-    bindEvents();
-    loadPersistedData();
-    renderAll();
-  }
+  async function initDashboard() {
+  cacheElements();
+  bindEvents();
 
+  const dbData = await loadDatabaseData();
+
+  console.log("LIVE DATABASE:", dbData);
+
+  loadPersistedData();
+  renderAll();
+}
   function cacheElements() {
     elements.navLinks = Array.from(document.querySelectorAll(".nav-link"));
     elements.views = Array.from(document.querySelectorAll(".view-section"));
