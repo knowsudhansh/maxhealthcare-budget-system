@@ -257,12 +257,60 @@ async function loadDatabaseData() {
     }
   }
 
-  function loadPersistedData() {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        return;
+  async function loadPersistedData() {
+
+  try {
+
+    const response = await fetch(
+      "https://maxhealthcare-budget-system-production.up.railway.app/api/budget-data"
+    );
+
+    const rows = await response.json();
+
+    console.log("LIVE DB DATA:", rows);
+
+    state.data = {
+      unitBudgetRows: [],
+      itOpexRows: rows.map(row => ({
+        location: row.location || "",
+        category: row.category_it || "",
+        vendor: row.owner || "",
+        unit: row.owner1 || "",
+        year: row.financial_year || "",
+        budget: Number(row.loc_fy_current || 0),
+        expense: Number(row.loc_le || 0),
+        coding: row.coding || "",
+        item: row.item || "",
+        owner: row.owner || ""
+      })),
+      allocationRows: [],
+      utilizationRows: [],
+      sheetSummary: [],
+      dimensions: {
+        locations: [],
+        categories: [],
+        years: [],
+        units: []
       }
+    };
+
+    populateFilters();
+
+    renderAll();
+
+    setSyncStatus("Live Railway DB connected ✅", "success");
+
+  } catch (error) {
+
+    console.error(error);
+
+    setSyncStatus(
+      "Live API failed: " + error.message,
+      "error"
+    );
+
+  }
+}
 
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.payload) {
