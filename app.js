@@ -957,6 +957,29 @@
   }
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
-  state.records = recalculateRecords(state.records || []);
-  render();
+  async function loadLiveBudgetData() {
+  try {
+
+    const response = await fetch(
+      "https://maxhealthcare-budget-system-production.up.railway.app/api/budget-data"
+    );
+
+    const rows = await response.json();
+
+    state.records = Array.isArray(rows) ? rows : [];
+
+    state.records = recalculateRecords(state.records || []);
+
+    render();
+
+    console.log("Live DB connected ✅");
+
+  } catch (error) {
+
+    console.error("API Load Error:", error);
+
+  }
+}
+
+loadLiveBudgetData();
 })();
