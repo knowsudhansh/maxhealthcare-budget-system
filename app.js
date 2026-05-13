@@ -966,7 +966,30 @@
 
     const rows = await response.json();
 
-    state.records = Array.isArray(rows) ? rows : [];
+    state.records = (Array.isArray(rows) ? rows : []).map(row => ({
+  id: row.id || "",
+  coding: row.coding || "",
+  item: row.item || "",
+  categoryIt: row.category_it || "",
+  subCategory: row.sub_category || "",
+  newCategory: row.new_category || "",
+  appCate: row.app_cate || "",
+  cate3: row.cate3 || "",
+  cate4: row.cate4 || "",
+  owner1: row.owner1 || "",
+  owner: row.owner || "",
+  location: row.location || "",
+  financialYear: row.financial_year || "",
+  locFyCurrent: Number(row.loc_fy_current || 0),
+  locLe: Number(row.loc_le || 0),
+  newAmc: Number(row.new_amc || 0),
+  newProject: Number(row.new_project || 0),
+  annualized: Number(row.annualized || 0),
+  priceIncrease: Number(row.price_increase || 0),
+  newUnit: Number(row.new_unit || 0),
+  licenseIncrease: Number(row.license_increase || 0),
+  rest: Number(row.rest || 0)
+}));
 
     state.records = recalculateRecords(state.records || []);
 
