@@ -311,7 +311,7 @@ async function loadDatabaseData() {
 
   }
 }
-
+  
       const parsed = JSON.parse(raw);
       if (!parsed || !parsed.payload) {
         return;
@@ -1060,4 +1060,4 @@ async function loadDatabaseData() {
     const sheet = window.XLSX.utils.json_to_sheet(safeRows.length ? safeRows : [{ Message: "No data for current filters" }]);
     window.XLSX.utils.book_append_sheet(workbook, sheet, name);
   }
-})();
+}

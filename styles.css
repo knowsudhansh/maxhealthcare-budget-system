@@ -1274,16 +1274,17 @@ textarea.input-control {
   position: absolute;
   left: 50%;
   bottom: calc(100% + 7px);
-  transform: translateX(-50%) translateY(4px);
-  opacity: 0;
+  transform: translateX(-50%) translateY(0);
+  opacity: 1;
   pointer-events: none;
   width: max-content;
   min-width: 84px;
   max-width: min(190px, 72vw);
   padding: 5px 7px;
   border-radius: 6px;
-  background: #0f2743;
-  color: #ffffff;
+  background: #eaf2fb;
+  color: #0f2743;
+  border: 1px solid #c7dbef;
   font-size: 0.72rem;
   font-weight: 800;
   line-height: 1.15;
@@ -1304,6 +1305,9 @@ textarea.input-control {
 .comparison-group-bar:hover span {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+  background: #0f2743;
+  color: #ffffff;
+  border-color: #0f2743;
 }
 
 .comparison-group-label {
@@ -3005,7 +3009,7 @@ details.multi-select summary::-webkit-details-marker {
 }
 
 .line-hover-label {
-  opacity: 0;
+  opacity: 1;
   pointer-events: none;
   font-size: 11px;
   font-weight: 700;
@@ -3028,6 +3032,20 @@ details.multi-select summary::-webkit-details-marker {
 
 .line-hover-dot:hover .line-hover-label {
   opacity: 1;
+}
+
+.dashboard-point-label {
+  font-size: 10px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.dashboard-point-label-budget {
+  fill: #0b7fc5;
+}
+
+.dashboard-point-label-expense {
+  fill: #7a3fe0;
 }
 #dashboardView .bar-col {
   position: relative !important;
@@ -3533,6 +3551,18 @@ details.multi-select summary::-webkit-details-marker {
   line-height: 1.35;
 }
 
+.dashboard-filter-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.dashboard-filter-meta .meta {
+  font-weight: 850;
+}
+
 .dashboard-location-lanes {
   display: grid;
   gap: 11px;
@@ -3631,6 +3661,31 @@ details.multi-select summary::-webkit-details-marker {
   height: 11px;
   border-radius: 3px;
   display: inline-block;
+}
+
+.dashboard-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+  color: var(--dash-muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.dashboard-heatmap-legend i {
+  width: 160px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(28, 180, 206, 0.08), rgba(28, 180, 206, 0.92));
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+.dashboard-heatmap-legend em {
+  font-style: normal;
+  font-weight: 950;
+  color: var(--dash-ink);
 }
 
 .dashboard-used-chip,

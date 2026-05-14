@@ -52,6 +52,27 @@
     return unique([].concat(fallback, fromRecords));
   }
 
+  function strictItemForCoding(codeValue) {
+    const normalizedCode = normalizeText(codeValue);
+    if (!normalizedCode) return "";
+
+    // 1) Exact position mapping from fallback coding/item arrays.
+    const fallbackCodings = Array.isArray(data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding)
+      ? data.FALLBACK_OPTIONS.coding
+      : [];
+    const fallbackItems = Array.isArray(data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.item)
+      ? data.FALLBACK_OPTIONS.item
+      : [];
+    const fallbackIndex = fallbackCodings.findIndex((coding) => normalizeText(coding) === normalizedCode);
+    if (fallbackIndex >= 0 && fallbackItems[fallbackIndex]) return String(fallbackItems[fallbackIndex]).trim();
+
+    // 2) Normalized map.
+    const mapItem = data.CODE_ITEM_MAP ? data.CODE_ITEM_MAP[normalizedCode] : "";
+    if (mapItem) return String(mapItem).trim();
+
+    return "";
+  }
+
   function findPlannerCodingMatch(query) {
     const normalizedQuery = normalizeText(query);
     if (!normalizedQuery) return "";
@@ -248,6 +269,45 @@
     });
   }
 
+  function applyCodingProfileToAllocation(codeValue) {
+    const normalizedCode = normalizeText(codeValue);
+    if (!normalizedCode) return;
+    if (!state.allocationControls) state.allocationControls = {};
+
+    const profile = (data.CODE_PROFILE_MAP && data.CODE_PROFILE_MAP[normalizedCode]) || {};
+    const item = strictItemForCoding(codeValue);
+    if (item) state.allocationControls.item = item;
+
+    [
+      "subCategoryMapped",
+      "categoryIt",
+      "subCategory",
+      "newCategory",
+      "appCate",
+      "cate3",
+      "cate4",
+      "costCenterDepartment"
+    ].forEach((key) => {
+      if (profile[key]) state.allocationControls[key] = profile[key];
+    });
+
+    const learnedProfiles = h.buildCodingProfiles ? h.buildCodingProfiles(state.records || []) : {};
+    const learned = learnedProfiles[normalizedCode] || {};
+    [
+      "item",
+      "subCategoryMapped",
+      "categoryIt",
+      "subCategory",
+      "newCategory",
+      "appCate",
+      "cate3",
+      "cate4",
+      "costCenterDepartment"
+    ].forEach((key) => {
+      if (!state.allocationControls[key] && learned[key]) state.allocationControls[key] = learned[key];
+    });
+  }
+
   function isPlannerProjectEntry(form) {
     const values = [form && form.newCategory, form && form.cate3, form && form.cate4, form && form.subCategory];
     return values.some((value) => normalizeText(value).includes("new project"));
@@ -355,28 +415,158 @@
 
   function downloadReport() {
     if (typeof XLSX === "undefined") return;
-    const rows = (state.records || []).map((record) => ({
-      "Financial Year": record.financialYear || "",
-      "MAX Hospital": record.location || "",
-      Coding: record.coding || "",
-      Item: record.item || "",
-      Owner: record.owner || record.owner1 || "",
-      "Current FY": num(record.locFyCurrent),
-      LE: num(record.locLe),
-      "New AMC": num(record.newAmc),
-      "New Project": num(record.newProject),
-      Annualized: num(record.annualized),
-      "Price Increase": num(record.priceIncrease),
-      "New Unit": num(record.newUnit),
-      "License Increase": num(record.licenseIncrease),
-      Rest: num(record.rest),
-      Total: num(record.locTotal)
-    }));
-
+    const records = Array.isArray(state.records) ? state.records : [];
     const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet(rows);
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Planner Report");
-    XLSX.writeFile(workbook, "it-opex-budget-report.xlsx");
+
+    function appendSheet(name, rows) {
+      const safe = Array.isArray(rows) && rows.length ? rows : [{ Message: "No data available for this sheet." }];
+      const sheet = XLSX.utils.json_to_sheet(safe);
+      XLSX.utils.book_append_sheet(workbook, sheet, name);
+    }
+
+    function ownerValue(record) {
+      return record.owner || record.owner1 || "";
+    }
+
+    function categoryValue(record) {
+      return record.categoryIt || record.subCategoryMapped || record.appCate || "";
+    }
+
+    // Planner tab data.
+    const plannerRows = records.map((record) => ({
+      financialYear: record.financialYear || "",
+      location: record.location || "",
+      coding: record.coding || "",
+      item: record.item || "",
+      owner: ownerValue(record),
+      categoryIt: categoryValue(record),
+      currentFY: num(record.locFyCurrent),
+      fyLastYear: num(record.locFyLast),
+      le: num(record.locLe),
+      percentChangeVsLastYear: num(record.locFyLast) ? ((num(record.locFyCurrent) - num(record.locFyLast)) / num(record.locFyLast)) * 100 : 0,
+      newAmc: num(record.newAmc),
+      newProject: num(record.newProject),
+      annualized: num(record.annualized),
+      priceIncrease: num(record.priceIncrease),
+      newUnit: num(record.newUnit),
+      licenseIncrease: num(record.licenseIncrease),
+      rest: num(record.rest),
+      total: num(record.locTotal)
+    }));
+    appendSheet("Planner Data", plannerRows);
+
+    // Dashboard tab filtered data.
+    const dashboardFilters = state.dashboardFilters || {};
+    const dashboardRows = records.filter((record) => {
+      const locationFilter = String(dashboardFilters.location || "").trim();
+      const categoryFilter = String(dashboardFilters.category || "").trim();
+      const yearFilter = String(dashboardFilters.financialYear || dashboardFilters.year || "").trim();
+      const ownerFilter = String(dashboardFilters.owner || "").trim();
+      const codingFilter = String(dashboardFilters.coding || "").trim();
+
+      if (locationFilter && locationFilter !== "All" && String(record.location || "") !== locationFilter) return false;
+      if (categoryFilter && categoryFilter !== "All" && categoryValue(record) !== categoryFilter) return false;
+      if (yearFilter && yearFilter !== "All" && String(record.financialYear || "") !== yearFilter) return false;
+      if (ownerFilter && ownerFilter !== "All" && ownerValue(record) !== ownerFilter) return false;
+      if (codingFilter && codingFilter !== "All" && normalizeText(record.coding) !== normalizeText(codingFilter)) return false;
+      return true;
+    });
+    appendSheet(
+      "Dashboard Data",
+      dashboardRows.map((record) => ({
+        financialYear: record.financialYear || "",
+        location: record.location || "",
+        coding: record.coding || "",
+        item: record.item || "",
+        owner: ownerValue(record),
+        categoryIt: categoryValue(record),
+        currentFY: num(record.locFyCurrent),
+        le: num(record.locLe),
+        fyLastYear: num(record.locFyLast)
+      }))
+    );
+
+    // Location Summary tab data.
+    const summaryFilters = state.summaryFilters || {};
+    const summaryRows = h.summaryRows ? h.summaryRows(records, {
+      location: summaryFilters.location && summaryFilters.location !== "All" ? summaryFilters.location : "",
+      financialYear: summaryFilters.financialYear && summaryFilters.financialYear !== "All" ? summaryFilters.financialYear : ""
+    }) : [];
+    appendSheet(
+      "Location Summary",
+      (summaryRows || []).map((row) => ({
+        financialYear: row.financialYear || "",
+        location: row.location || "",
+        budgetCurrentYear: num(row.budgetFy26),
+        budgetLastYear: num(row.totalBudgetLastYear),
+        le: num(row.leFy25),
+        differenceAmount: num(row.differenceAmount),
+        differencePercent: num(row.differencePercent),
+        total: num(row.total)
+      }))
+    );
+
+    // Unit Wise Budget tab data.
+    const unitRows = h.unitRows ? h.unitRows(records) : [];
+    appendSheet(
+      "Unit Wise Budget",
+      (unitRows || []).map((row) => ({
+        location: row.location || "",
+        lyExpense: num(row.lyExpense),
+        currentBudget: num(row.currentBudget),
+        budgetIncrease: num(row.budgetIncrease),
+        budgetIncreasePercent: num(row.budgetIncreasePercent),
+        sharePercent: num(row.sharePercent),
+        newExpansion: num(row.newExpansion)
+      }))
+    );
+
+    // Allocation tab: merged fixed + distributed matrix with per-location amounts.
+    const allocationCombinedRows = ui.getAllocationCombinedRowsForReport ? ui.getAllocationCombinedRowsForReport() : [];
+    appendSheet("Allocation Combined", allocationCombinedRows);
+
+    // Utilization tab data.
+    const utilizationRows = h.utilizationRows ? h.utilizationRows(records) : [];
+    appendSheet(
+      "Utilization",
+      (utilizationRows || []).map((row) => ({
+        location: row.location || "",
+        planned: num(row.planned),
+        used: num(row.used),
+        remaining: num(row.remaining),
+        utilizationPercent: num(row.utilization)
+      }))
+    );
+
+    // Comparison tab data based on selected comparison filters.
+    const comparisonFilters = state.comparisonFilters || {};
+    const comparisonRows = records.filter((record) => {
+      if (comparisonFilters.financialYear && String(record.financialYear || "") !== String(comparisonFilters.financialYear)) return false;
+      if (comparisonFilters.coding && normalizeText(record.coding) !== normalizeText(comparisonFilters.coding)) return false;
+      if (comparisonFilters.location1 && comparisonFilters.location2) {
+        const n1 = normalizeText(comparisonFilters.location1);
+        const n2 = normalizeText(comparisonFilters.location2);
+        const loc = normalizeText(record.location);
+        if (loc !== n1 && loc !== n2) return false;
+      }
+      return true;
+    });
+    appendSheet(
+      "Comparison Data",
+      comparisonRows.map((record) => ({
+        financialYear: record.financialYear || "",
+        location: record.location || "",
+        coding: record.coding || "",
+        item: record.item || "",
+        owner: ownerValue(record),
+        currentFY: num(record.locFyCurrent),
+        fyLastYear: num(record.locFyLast),
+        le: num(record.locLe),
+        fixedOrDistributed: record.__allocationType || "Fixed Cost"
+      }))
+    );
+
+    XLSX.writeFile(workbook, "it-opex-budget-full-report.xlsx");
   }
 
   function setPlannerField(key, value) {
@@ -536,6 +726,18 @@
       downloadReport();
       return;
     }
+    if (action === "dashboard-export") {
+      if (ui.exportDashboardPdf) ui.exportDashboardPdf();
+      return;
+    }
+    if (action === "allocation-matrix-export") {
+      if (ui.exportAllocationMatrixWorkbook) ui.exportAllocationMatrixWorkbook();
+      return;
+    }
+    if (action === "planner-saved-export") {
+      if (ui.exportPlannerSavedRecordsWorkbook) ui.exportPlannerSavedRecordsWorkbook();
+      return;
+    }
     if (action === "allocation-row-edit") {
       const rowKey = String(actionButton.getAttribute("data-row-key") || "");
       if (!rowKey) return;
@@ -563,20 +765,17 @@
       const item = String(actionButton.getAttribute("data-item") || "");
       const owner = String(actionButton.getAttribute("data-owner") || "");
       const financialYear = String(actionButton.getAttribute("data-year") || "");
+      const allocationType = String(actionButton.getAttribute("data-allocation-type") || "");
       const codingKey = normalizeText(coding);
-      const itemKey = normalizeText(item);
       const ownerKey = normalizeText(owner);
+      const isDistributedRow = normalizeText(allocationType) === "distributed";
 
-      state.records = (state.records || []).filter((record) => {
-        return !(
-          normalizeText(record.coding) === codingKey &&
-          normalizeText(record.item) === itemKey &&
-          normalizeText(record.owner) === ownerKey &&
-          String(record.financialYear || "") === financialYear
-        );
-      });
-      state.records = recalculateRecords(state.records);
-      persist();
+      if (!isDistributedRow) {
+        state.allocationSubmitMessage =
+          "Fixed Cost rows come from Budget Planner records. Delete them from Saved Records in Budget Planner if needed.";
+        render();
+        return;
+      }
 
       state.allocationDb = (state.allocationDb || []).filter(
         (entry) =>
@@ -600,6 +799,7 @@
         clearAllocationModalState();
       }
 
+      state.allocationSubmitMessage = `Removed Distributed allocation for ${coding || item || "selected row"} (${financialYear || "all years"}).`;
       render();
       return;
     }
@@ -644,6 +844,7 @@
       const mode = String(controls.mode || "Fixed Cost");
       const liveControls = Object.assign({}, controls, {
         coding: liveFieldValue("allocation-coding", controls.coding || controls.codingSearch || ""),
+        item: liveFieldValue("allocation-item", controls.item || ""),
         owner: liveFieldValue("allocation-owner", controls.owner || ""),
         financialYear: liveFieldValue("allocation-financialYear", controls.financialYear || ""),
         amount: liveFieldValue("allocation-amount", controls.amount || "")
@@ -656,6 +857,7 @@
         state.allocationControls.coding = primaryCoding;
         state.allocationControls.codings = primaryCoding ? [primaryCoding] : [];
         state.allocationControls.codingSearch = "";
+        state.allocationControls.item = String(liveControls.item || "");
         state.allocationControls.owner = owner;
         state.allocationControls.financialYear = financialYear;
         state.allocationControls.amount = liveControls.amount;
@@ -705,9 +907,10 @@
 
         state.allocationDb = Object.values(dbMap);
         saveAllocationDb();
-        state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${batchTotal.toLocaleString("en-IN", {
-          maximumFractionDigits: 2
-        })}.`;
+        state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${batchTotal.toLocaleString(
+          "en-IN",
+          { maximumFractionDigits: 2 }
+        )}.`;
       } else {
         state.allocationSubmitMessage = `Submit blocked: coding=${codings.length ? codings.join(", ") : "missing"}, owner=${owner || "missing"}, year=${
           financialYear || "missing"
@@ -725,7 +928,13 @@
     const value = "value" in target ? target.value : "";
 
     if (id.startsWith("dashboard-")) {
-      setDashboardFilter(id.replace("dashboard-", ""), value);
+      const key = id.replace("dashboard-", "");
+      if (key === "coding") {
+        const matchedCoding = findPlannerCodingMatch(value);
+        setDashboardFilter(key, matchedCoding || value);
+      } else {
+        setDashboardFilter(key, value);
+      }
       render();
       return;
     }
@@ -737,7 +946,13 @@
     }
 
     if (id.startsWith("comparison-")) {
-      setComparisonFilter(id.replace("comparison-", ""), value);
+      const key = id.replace("comparison-", "");
+      if (key === "coding") {
+        const matchedCoding = findPlannerCodingMatch(value);
+        setComparisonFilter(key, matchedCoding || value);
+      } else {
+        setComparisonFilter(key, value);
+      }
       render();
       return;
     }
@@ -749,6 +964,14 @@
       if (target.classList.contains("combo-input") && String(previousValue ?? "") === String(state.form[key] ?? "")) {
         return;
       }
+      render();
+      return;
+    }
+
+    if (id.startsWith("plannerSaved-")) {
+      const key = id.replace("plannerSaved-", "");
+      const nextValue = value && value !== "All" ? value : "All";
+      state.plannerSavedFilters = Object.assign({}, state.plannerSavedFilters || {}, { [key]: nextValue });
       render();
       return;
     }
@@ -765,9 +988,74 @@
       return;
     }
 
+    if (id === "allocation-owner1") {
+      setAllocationControl("owner1", value);
+      render();
+      return;
+    }
+
+    if (id === "allocation-costCenterDepartment") {
+      setAllocationControl("costCenterDepartment", value);
+      render();
+      return;
+    }
+
+    if (id === "allocation-subCategoryMapped") {
+      setAllocationControl("subCategoryMapped", value);
+      render();
+      return;
+    }
+    if (id === "allocation-categoryIt") {
+      setAllocationControl("categoryIt", value);
+      render();
+      return;
+    }
+    if (id === "allocation-subCategory") {
+      setAllocationControl("subCategory", value);
+      render();
+      return;
+    }
+    if (id === "allocation-newCategory") {
+      setAllocationControl("newCategory", value);
+      render();
+      return;
+    }
+    if (id === "allocation-appCate") {
+      setAllocationControl("appCate", value);
+      render();
+      return;
+    }
+    if (id === "allocation-cate3") {
+      setAllocationControl("cate3", value);
+      render();
+      return;
+    }
+    if (id === "allocation-cate4") {
+      setAllocationControl("cate4", value);
+      render();
+      return;
+    }
+
     if (id === "allocation-coding") {
       const matchedCoding = findPlannerCodingMatch(value);
-      setAllocationControl("coding", matchedCoding || value);
+      const nextCoding = matchedCoding || value;
+      setAllocationControl("coding", nextCoding);
+      applyCodingProfileToAllocation(nextCoding);
+      const mappedItem = strictItemForCoding(nextCoding);
+      setAllocationControl("item", mappedItem || state.allocationControls.item || "");
+      render();
+      return;
+    }
+
+    if (id === "allocation-item") {
+      setAllocationControl("item", value);
+      const matchedCoding = findPlannerCodingByItemMatch(value);
+      if (matchedCoding) {
+        setAllocationControl("coding", matchedCoding);
+        state.allocationControls.codings = matchedCoding ? [matchedCoding] : [];
+        state.allocationControls.codingSearch = "";
+        applyCodingProfileToAllocation(matchedCoding);
+      }
       render();
       return;
     }
@@ -780,6 +1068,31 @@
 
     if (id === "allocation-amount") {
       setAllocationControl("amount", value);
+      render();
+      return;
+    }
+
+    if (id === "allocation-matrix-location") {
+      const next = value && value !== "All" ? value : "";
+      state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { location: next });
+      render();
+      return;
+    }
+    if (id === "allocation-matrix-coding") {
+      const next = value && value !== "All" ? value : "";
+      state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { coding: next });
+      render();
+      return;
+    }
+    if (id === "allocation-matrix-financialYear") {
+      const next = value && value !== "All" ? value : "";
+      state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { financialYear: next });
+      render();
+      return;
+    }
+    if (id === "allocation-matrix-owner") {
+      const next = value && value !== "All" ? value : "";
+      state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { owner: next });
       render();
       return;
     }
@@ -874,10 +1187,33 @@
     if (target.id === "allocation-coding" && target.classList.contains("combo-input") && "value" in target) {
       const matchedCoding = findPlannerCodingMatch(target.value);
       const nextCoding = matchedCoding || target.value;
+      const previousCoding = state.allocationControls && state.allocationControls.coding ? state.allocationControls.coding : "";
       state.allocationControls.coding = nextCoding;
       state.allocationControls.codings = nextCoding ? [nextCoding] : [];
-      if (matchedCoding && String(matchedCoding) !== String(target.value || "")) {
+      if (matchedCoding) {
+        applyCodingProfileToAllocation(nextCoding);
+        const mappedItem = strictItemForCoding(nextCoding);
+        state.allocationControls.item = mappedItem || state.allocationControls.item || "";
+      }
+
+      if (matchedCoding) {
+        // Commit the resolved coding into the input (Planner-style behavior).
+        target.value = matchedCoding;
+      }
+
+      if (normalizeText(previousCoding) !== normalizeText(nextCoding) || matchedCoding) {
         render();
+        // After rerender, keep the user's cursor in the coding box.
+        window.requestAnimationFrame(() => {
+          const codingInput = document.getElementById("allocation-coding");
+          if (codingInput && "focus" in codingInput) {
+            codingInput.focus();
+            if ("value" in codingInput && typeof codingInput.setSelectionRange === "function") {
+              const end = String(codingInput.value || "").length;
+              codingInput.setSelectionRange(end, end);
+            }
+          }
+        });
       }
       return;
     }
@@ -957,7 +1293,7 @@
   }
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
-  async function loadLiveBudgetData() {
+async function loadLiveBudgetData() {
   try {
 
     const response = await fetch(
@@ -966,7 +1302,7 @@
 
     const rows = await response.json();
 
-    state.records = (Array.isArray(rows) ? rows : []).map(row => ({
+    const remoteRecords = (Array.isArray(rows) ? rows : []).map(row => ({
   id: row.id || "",
   coding: row.coding || "",
   item: row.item || "",
@@ -991,7 +1327,32 @@
   rest: Number(row.rest || 0)
 }));
 
-    state.records = recalculateRecords(state.records || []);
+    const localRecords = Array.isArray(state.records) ? state.records : [];
+    const mergedMap = {};
+    const recordKey = (record) => {
+      const idPart = String(record && record.id ? record.id : "").trim();
+      if (idPart) return `id::${idPart}`;
+      return [
+        normalizeText(record && record.coding),
+        normalizeText(record && record.item),
+        normalizeText(record && record.owner),
+        normalizeText(record && record.location),
+        String((record && record.financialYear) || "").trim(),
+        allocationRoundedValue(record && record.locFyCurrent),
+        allocationRoundedValue(record && record.locLe)
+      ].join("||");
+    };
+
+    remoteRecords.forEach((record) => {
+      mergedMap[recordKey(record)] = record;
+    });
+    // Keep local unsynced/manual records on top of remote payload so refresh does not wipe planner work.
+    localRecords.forEach((record) => {
+      mergedMap[recordKey(record)] = record;
+    });
+
+    state.records = recalculateRecords(Object.values(mergedMap));
+    persist();
 
     render();
 

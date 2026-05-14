@@ -275,7 +275,10 @@
   }
 
   function searchCard(id, label, value, options, placeholder, isLocked) {
-    const values = uniq([].concat(options || [], value || []).filter(Boolean));
+    const rawValues = uniq([].concat(options || [], value || []).filter(Boolean));
+    const values = rawValues
+      .filter((option) => normalizeText(option) === "all")
+      .concat(rawValues.filter((option) => normalizeText(option) !== "all"));
     if (isLocked) {
       const control = `
         <input
@@ -815,6 +818,12 @@
           </tbody>
         </table>
       </div>
+      <div class="dashboard-heatmap-legend">
+        <span>Low</span>
+        <i></i>
+        <span>High</span>
+        <em>${esc(fmt(maxValue))}</em>
+      </div>
     `;
   }
 
@@ -1075,6 +1084,10 @@
         weightedLocations.forEach((location) => {
           const mappedWeight = num(ALLOCATION_DISTRIBUTION_MAP[location]);
           const nextCurrent = (rowTarget * mappedWeight) / weightTotal;
+          // Distribution mode should only spread current-year target budget.
+          // LE and Last-Year values must come from explicit planner entries, not inferred splits.
+          const nextLe = 0;
+          const nextFyLast = 0;
           const mappedItem = mappedItemForCode(config.coding) || row.item || "";
           distributedRecords.push(
             Object.assign({}, row, {
@@ -1082,7 +1095,9 @@
               item: mappedItem,
               owner: config.owner || row.owner || "",
               locFyCurrent: nextCurrent,
-              locPercent: num(row.locLe) ? ((nextCurrent - num(row.locLe)) / num(row.locLe)) * 100 : 0,
+              locLe: nextLe,
+              locFyLast: nextFyLast,
+              locPercent: nextLe ? ((nextCurrent - nextLe) / nextLe) * 100 : 0,
               __allocationType: "Distributed"
             })
           );
@@ -1107,14 +1122,38 @@
     };
   }
 
+  function applyAllocationMatrixEditsToRecords(recordsInput) {
+    const records = Array.isArray(recordsInput) ? recordsInput : [];
+    const manualEdits =
+      state && state.allocationMatrixEdits && typeof state.allocationMatrixEdits === "object" ? state.allocationMatrixEdits : {};
+    const manualKeys = Object.keys(manualEdits || {});
+    if (!manualKeys.length) return records;
+
+    return records.map((record) => {
+      const next = Object.assign({}, record);
+      if (normalizeText(next.__allocationType || "Fixed Cost") !== "distributed") return next;
+      const resolvedItem = String(next.item || "").trim() || mappedItemForCode(next.coding);
+      const rowKey = allocationRowKey(next.coding || "", resolvedItem || "", next.owner || "", next.financialYear || "");
+      const locationKey = next.location || "Unassigned";
+      const cellKey = allocationCellKey(rowKey, locationKey);
+      if (!Object.prototype.hasOwnProperty.call(manualEdits, cellKey)) return next;
+
+      const editedValue = Math.max(0, num(manualEdits[cellKey]));
+      next.locFyCurrent = editedValue;
+      next.locPercent = num(next.locLe) ? ((editedValue - num(next.locLe)) / num(next.locLe)) * 100 : 0;
+      return next;
+    });
+  }
+
   function rowsForDashboard() {
     const filters = state.dashboardFilters || {};
-    const adjustedRecords = getAllocationBudgetContext(getRecords()).records;
+    const adjustedRecords = applyAllocationMatrixEditsToRecords(getAllocationBudgetContext(getRecords()).records);
     return adjustedRecords.filter((record) => {
       const locationFilter = String(filters.location || "").trim();
       const categoryFilter = String(filters.category || "").trim();
       const yearFilter = String(filters.financialYear || filters.year || "").trim();
       const ownerFilter = String(filters.owner || "").trim();
+      const codingFilter = String(filters.coding || "").trim();
       const categoryValue = resolveGroupValue(record, "categoryIt");
       const ownerValue = resolveGroupValue(record, "owner");
 
@@ -1122,6 +1161,7 @@
       if (categoryFilter && categoryFilter !== "All" && categoryValue !== categoryFilter) return false;
       if (yearFilter && yearFilter !== "All" && record.financialYear !== yearFilter) return false;
       if (ownerFilter && ownerFilter !== "All" && ownerValue !== ownerFilter) return false;
+      if (codingFilter && codingFilter !== "All" && normalizeText(record.coding) !== normalizeText(codingFilter)) return false;
       return true;
     });
   }
@@ -1279,6 +1319,10 @@
           })
           .join("")}
       </div>
+      <div class="dashboard-chart-legend">
+        <span><i class="dashboard-budget-chip"></i>Tile value</span>
+        <span><i class="dashboard-remaining-chip"></i>Bar = share of total</span>
+      </div>
     `;
   }
 
@@ -1352,6 +1396,12 @@
                   <circle cx="${expensePoint.x}" cy="${expensePoint.y}" r="4" class="dashboard-dot-expense">
                     <title>${esc(`${item.label} | Expense: ${fmt(item.expense)}`)}</title>
                   </circle>
+                  <text x="${budgetPoint.x}" y="${budgetPoint.y - 10}" text-anchor="middle" class="dashboard-point-label dashboard-point-label-budget">${esc(
+                    fmt(item.budget)
+                  )}</text>
+                  <text x="${expensePoint.x}" y="${expensePoint.y + 16}" text-anchor="middle" class="dashboard-point-label dashboard-point-label-expense">${esc(
+                    fmt(item.expense)
+                  )}</text>
                   <text x="${axisPoint.x}" y="${height - 10}" text-anchor="middle" class="dashboard-axis-label">${esc(item.label)}</text>
                 </g>
               `;
@@ -1387,6 +1437,9 @@
             `;
           })
           .join("")}
+      </div>
+      <div class="dashboard-chart-legend">
+        <span><i class="dashboard-used-chip"></i>Bar length = budget</span>
       </div>
     `;
   }
@@ -1618,6 +1671,15 @@
     const categoryOptions = optionValuesForKey("categoryIt");
     const yearOptions = optionValuesForKey("financialYear");
     const ownerOptions = optionValuesForKey("owner");
+    const codingOptionMap = {};
+    []
+      .concat(getRecords().map((record) => record.coding), (data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"))
+      .filter(Boolean)
+      .forEach((coding) => {
+        const key = normalizeText(coding);
+        if (key && !codingOptionMap[key]) codingOptionMap[key] = coding;
+      });
+    const codingOptions = Object.values(codingOptionMap).sort((left, right) => String(left).localeCompare(String(right)));
 
     const locationGroups = groupedRows(records, "location");
     const categoryGroups = groupedRows(records, "categoryIt");
@@ -1678,19 +1740,23 @@
             <h3>Enterprise Dashboard Filters</h3>
             <p>Filter location, category, year, and owner to focus the dashboard story.</p>
           </div>
-          <div class="meta">${esc(records.length)} records matched</div>
+          <div class="dashboard-filter-meta">
+            <div class="meta">${esc(records.length)} records matched</div>
+            <button type="button" class="btn btn-soft" data-action="dashboard-export">Download PDF</button>
+          </div>
         </div>
         <div class="filter-grid">
-          ${selectCard("dashboard-location", "Location", (state.dashboardFilters || {}).location || "", locationOptions, "All")}
-          ${selectCard("dashboard-category", "Category", (state.dashboardFilters || {}).category || "", categoryOptions, "All")}
-          ${selectCard(
+          ${searchCard("dashboard-location", "Location", (state.dashboardFilters || {}).location || "", ["All"].concat(locationOptions), "Search location")}
+          ${searchCard("dashboard-category", "Category", (state.dashboardFilters || {}).category || "", ["All"].concat(categoryOptions), "Search category")}
+          ${searchCard("dashboard-coding", "Coding", (state.dashboardFilters || {}).coding || "", ["All"].concat(codingOptions), "Search coding")}
+          ${searchCard(
             "dashboard-financialYear",
             "Financial Year",
             (state.dashboardFilters || {}).financialYear || "",
-            yearOptions,
-            "All"
+            ["All"].concat(yearOptions),
+            "Search financial year"
           )}
-          ${selectCard("dashboard-owner", "Owner", (state.dashboardFilters || {}).owner || "", ownerOptions, "All")}
+          ${searchCard("dashboard-owner", "Owner", (state.dashboardFilters || {}).owner || "", ["All"].concat(ownerOptions), "Search owner")}
         </div>
       </section>
 
@@ -1792,13 +1858,8 @@
     const distributionFactor = form.costDistribution === "Distribution" ? distributionPercent / 100 : 1;
     const effectiveCurrentFy = num(form.locFyCurrent) * distributionFactor;
     const percentChange = num(form.locLe) ? ((effectiveCurrentFy - num(form.locLe)) / num(form.locLe)) * 100 : 0;
-    const codeProfile = getCodeProfile(form.coding);
+    // Keep mapped fields editable so users can adjust values after auto-fill.
     const locked = new Set();
-    if (codeProfile) {
-      ["subCategoryMapped", "categoryIt", "subCategory", "newCategory", "appCate", "cate3", "cate4"].forEach((key) =>
-        locked.add(key)
-      );
-    }
 
     const fields = [
       ["coding", "Coding", "Select coding"],
@@ -1821,7 +1882,34 @@
       )
       .join("");
 
-    const savedRows = getRecords().map((record) => {
+    const savedFilters = state.plannerSavedFilters || {};
+    const savedYear = String(savedFilters.financialYear || "");
+    const savedLocation = String(savedFilters.location || "");
+    const savedCoding = String(savedFilters.coding || "");
+    const savedItem = String(savedFilters.item || "");
+    const savedOwner = String(savedFilters.owner || "");
+
+    const allRecords = getRecords();
+    const savedFilteredRecords = allRecords.filter((record) => {
+      if (savedYear && savedYear !== "All" && String(record.financialYear || "") !== savedYear) return false;
+      if (savedLocation && savedLocation !== "All" && String(record.location || "") !== savedLocation) return false;
+      if (savedCoding && savedCoding !== "All" && normalizeText(record.coding) !== normalizeText(savedCoding)) return false;
+      if (savedItem && savedItem !== "All" && normalizeText(record.item) !== normalizeText(savedItem)) return false;
+      if (savedOwner && savedOwner !== "All" && normalizeText(record.owner) !== normalizeText(savedOwner)) return false;
+      return true;
+    });
+
+    function plannerChangeBadge(changePercent) {
+      const value = num(changePercent);
+      if (value > 0) return `<span class="trend-badge trend-up">&uarr; ${esc(pct(value))}</span>`;
+      if (value < 0) return `<span class="trend-badge trend-down">&darr; ${esc(pct(Math.abs(value)))}</span>`;
+      return `<span class="trend-badge trend-flat">&harr; ${esc(pct(0))}</span>`;
+    }
+
+    const savedRows = savedFilteredRecords.map((record) => {
+      const last = num(record.locFyLast);
+      const current = num(record.locFyCurrent);
+      const changePct = last ? ((current - last) / last) * 100 : 0;
       return `
         <tr>
           <td>${esc(record.financialYear || "")}</td>
@@ -1829,6 +1917,8 @@
           <td>${esc(record.coding || "")}</td>
           <td>${esc(record.item || "")}</td>
           <td>${esc(fmt(record.locFyCurrent || 0))}</td>
+          <td>${esc(fmt(record.locFyLast || 0))}</td>
+          <td>${plannerChangeBadge(changePct)}</td>
           <td>${esc(fmt(record.locLe || 0))}</td>
           <td>${esc(record.owner || "")}</td>
           <td class="row-actions">
@@ -1917,10 +2007,29 @@
         </div>
       </section>
 
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Saved Records Filters</h3>
+            <p>Filter the saved planner rows by year, location, coding, item, and owner.</p>
+          </div>
+          <div class="dashboard-filter-meta">
+            <button type="button" class="btn btn-soft" data-action="planner-saved-export">Download Excel</button>
+          </div>
+        </div>
+        <div class="filter-grid">
+          ${selectCard("plannerSaved-financialYear", "Financial Year", savedYear, optionValuesForKey("financialYear"), "All")}
+          ${selectCard("plannerSaved-location", "Location", savedLocation, getAllLocations(), "All")}
+          ${selectCard("plannerSaved-coding", "Coding", savedCoding, optionValuesForKey("coding"), "All")}
+          ${selectCard("plannerSaved-item", "Item", savedItem, optionValuesForKey("item"), "All")}
+          ${selectCard("plannerSaved-owner", "Owner", savedOwner, optionValuesForKey("owner"), "All")}
+        </div>
+      </section>
+
       ${tableCard(
         "Saved Records",
         "Current planner records stored locally.",
-        ["Financial Year", "MAX Hospital", "Coding", "Item", "Current FY", "LE", "Owner", "Actions"],
+        ["Financial Year", "MAX Hospital", "Coding", "Item", "Current FY", "FY (Last Year)", "% Change", "LE", "Owner", "Actions"],
         savedRows
       )}
     `;
@@ -2215,10 +2324,17 @@
     const showLocationSelector = false;
     const selectedLocations = showLocationSelector && Array.isArray(controls.locations) ? controls.locations : [];
     const selectedCodingSet = getAllocationSelectedCodingSet();
+    const matrixFilters = state.allocationMatrixFilters || {};
+    const matrixLocation = String(matrixFilters.location || "");
+    const matrixCoding = String(matrixFilters.coding || "");
+    const matrixYear = String(matrixFilters.financialYear || "");
+    const matrixOwner = String(matrixFilters.owner || "");
     const ownerOptions = optionValuesForKey("owner");
     const selectedOwner = String(controls.owner || "");
     const yearOptions = optionValuesForKey("financialYear");
     const selectedYear = String(controls.financialYear || "");
+    const selectedItem = String(controls.item || "");
+    // Allocation mapped fields must remain editable, even when a coding profile exists.
     const appliedEntries = getAppliedAllocationEntries();
     const hasAppliedDistribution = appliedEntries.length > 0;
     const locations = getAllLocations();
@@ -2262,7 +2378,15 @@
         (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
     });
 
-    const allEntries = Object.values(grouped).sort((a, b) => {
+    const allEntries = Object.values(grouped)
+      .filter((entry) => {
+        if (matrixYear && String(entry.financialYear || "") !== matrixYear) return false;
+        if (matrixCoding && normalizeText(entry.coding) !== normalizeText(matrixCoding)) return false;
+        if (matrixOwner && normalizeText(entry.owner) !== normalizeText(matrixOwner)) return false;
+        if (matrixLocation) return num(entry.locations && entry.locations[matrixLocation]) > 0;
+        return true;
+      })
+      .sort((a, b) => {
       const yearSort = String(a.financialYear || "").localeCompare(String(b.financialYear || ""));
       if (yearSort) return yearSort;
       const codingSort = String(a.coding || "").localeCompare(String(b.coding || ""));
@@ -2363,6 +2487,7 @@
             data-coding="${esc(entry.coding || "")}"
             data-item="${esc(entry.item || "")}"
             data-owner="${esc(entry.owner || "")}"
+            data-allocation-type="${esc(rowAllocationType)}"
           >
             Delete
           </button>
@@ -2407,7 +2532,7 @@
         ? hasAppliedDistribution
           ? `Distributed budget ${fmt(allocationContext.distributedBudget)} is mapped across locations for ${allocationContext.distributedCodingCount} coding(s). Fixed-cost budget remains ${fmt(allocationContext.fixedBudget)}. Update coding/amount and click Submit Record to apply new distribution.`
           : selectedCodingSet.size && selectedOwner && selectedYear
-          ? "Select coding and amount, then click Submit Record to apply mapped location distribution for the selected year. Comparison will show that year-specific split."
+          ? "Select coding and Distribution Amount, then click Submit Record to apply mapped location distribution for the selected year. Comparison will show that year-specific split."
           : selectedCodingSet.size && selectedOwner
           ? "Choose year after owner to unlock Distribution Amount."
           : selectedCodingSet.size
@@ -2491,7 +2616,27 @@
         ? "Preview is based on the current Distribution Amount field."
         : allocationContext.distributedBudget > 0
         ? "Amount preview is based on the active submitted distributed budget."
-        : "Enter Distribution Amount and click Submit Record to distribute amount by these fixed location percentages.";
+        : "Enter Distribution Amount and click Submit Record to distribute by these fixed location percentages.";
+
+    const matrixFilterBar = `
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Matrix Filters</h3>
+            <p>Filter the allocation matrix by location, coding, year, and owner.</p>
+          </div>
+          <div class="dashboard-filter-meta">
+            <button type="button" class="btn btn-soft" data-action="allocation-matrix-export">Download Excel</button>
+          </div>
+        </div>
+        <div class="filter-grid">
+          ${selectCard("allocation-matrix-location", "Location", matrixLocation, locations, "All")}
+          ${selectCard("allocation-matrix-coding", "Coding", matrixCoding, codingOptions, "All")}
+          ${selectCard("allocation-matrix-financialYear", "Financial Year", matrixYear, yearOptions, "All")}
+          ${selectCard("allocation-matrix-owner", "Owner", matrixOwner, ownerOptions, "All")}
+        </div>
+      </section>
+    `;
 
     return `
       <section class="card">
@@ -2514,7 +2659,114 @@
                 )
               : ""
           }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-item",
+                  "Item",
+                  selectedItem,
+                  uniq([].concat(Object.values(data.CODE_ITEM_MAP || {}), getRecords().map((record) => record.item)).filter(Boolean)),
+                  "Search item"
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-subCategoryMapped",
+                  "Sub Category (Mapped)",
+                  String(controls.subCategoryMapped || ""),
+                  optionValuesForKey("subCategoryMapped"),
+                  "Select mapped sub category",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-categoryIt",
+                  "Category_IT",
+                  String(controls.categoryIt || ""),
+                  optionValuesForKey("categoryIt"),
+                  "Select category",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-subCategory",
+                  "Sub Category",
+                  String(controls.subCategory || ""),
+                  optionValuesForKey("subCategory"),
+                  "Select sub category",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-newCategory",
+                  "New Category",
+                  String(controls.newCategory || ""),
+                  optionValuesForKey("newCategory"),
+                  "Select new category",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-appCate",
+                  "App Cate.",
+                  String(controls.appCate || ""),
+                  optionValuesForKey("appCate"),
+                  "Select app cate.",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-cate3",
+                  "Cate.3",
+                  String(controls.cate3 || ""),
+                  optionValuesForKey("cate3"),
+                  "Select cate.3",
+                  false
+                )
+              : ""
+          }
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-cate4",
+                  "Cate.4",
+                  String(controls.cate4 || ""),
+                  optionValuesForKey("cate4"),
+                  "Select cate.4",
+                  false
+                )
+              : ""
+          }
+          ${isDistributionMode ? searchCard("allocation-owner1", "Owner1", String(controls.owner1 || ""), optionValuesForKey("owner1"), "Select owner1") : ""}
           ${isDistributionMode ? selectCard("allocation-owner", "Owner", selectedOwner, ownerOptions, "Select owner") : ""}
+          ${
+            isDistributionMode
+              ? searchCard(
+                  "allocation-costCenterDepartment",
+                  "Cost Center / Department",
+                  String(controls.costCenterDepartment || ""),
+                  optionValuesForKey("costCenterDepartment"),
+                  "Select cost center / department"
+                )
+              : ""
+          }
           ${isDistributionMode ? selectCard("allocation-financialYear", "Select Year", selectedYear, yearOptions, "Select year") : ""}
           ${
             isDistributionMode && (!selectedCodingSet.size || !selectedOwner || !selectedYear)
@@ -2546,6 +2798,7 @@
         ${submitMessage ? `<div class="allocation-submit-note">${esc(submitMessage)}</div>` : ""}
       </section>
 
+      ${matrixFilterBar}
       ${tableCard("Coding / Item / Owner Allocation Matrix", allocationSubtitle, headers, rows)}
       ${allocationDistributionShareCard(locations, distributionShareBase, distributionShareNote)}
       ${editModal}
@@ -3047,6 +3300,12 @@
                   <circle cx="${rightPoint.x}" cy="${rightPoint.y}" r="4" class="line-point line-point-expense">
                     <title>${esc(`${item.label} | ${location2}: ${fmt(item.right)}`)}</title>
                   </circle>
+                  <text x="${leftPoint.x}" y="${leftPoint.y - 10}" text-anchor="middle" class="line-hover-label line-hover-label-budget">${esc(
+                    fmt(item.left)
+                  )}</text>
+                  <text x="${rightPoint.x}" y="${rightPoint.y + 16}" text-anchor="middle" class="line-hover-label line-hover-label-expense">${esc(
+                    fmt(item.right)
+                  )}</text>
                   <text x="${axisPoint.x}" y="${height - 8}" text-anchor="middle" class="line-axis-label">${esc(item.label)}</text>
                 </g>
               `;
@@ -3096,7 +3355,7 @@
         <div class="filter-grid">
           ${selectCard("comparison-location1", "Location 1", location1, locationOptions, "Select Location 1")}
           ${selectCard("comparison-location2", "Location 2", location2, locationOptions, "Select Location 2")}
-          ${selectCard("comparison-coding", "Coding", selectedCoding, codingOptions, "All Codings")}
+          ${searchCard("comparison-coding", "Coding", selectedCoding, codingOptions, "Search coding")}
           ${selectCard("comparison-financialYear", "Select Year", selectedYear, yearOptions, "All Years")}
         </div>
       </section>
@@ -3453,5 +3712,550 @@
     state.form = Object.assign({}, state.form || {}, { [plannerRawValueKey(key)]: target.value });
   });
 
-  window.OpexUI = { renderAll, setUnitBudgetFilter, preparePlannerSave };
+  function computeDashboardTop80(records, totalBudget) {
+    const rows = Array.isArray(records) ? records : [];
+    const budgetTotal = Math.max(num(totalBudget), 0);
+    if (!rows.length || !budgetTotal) return { pareto: [], alerts: [] };
+
+    const groupedByCodingItem = {};
+    rows.forEach((record) => {
+      const coding = String(record.coding || "Unassigned").trim() || "Unassigned";
+      const item = String(record.item || "Unassigned").trim() || "Unassigned";
+      const key = `${coding}||${item}`;
+      if (!groupedByCodingItem[key]) {
+        groupedByCodingItem[key] = { coding, item, current: 0, last: 0 };
+      }
+      groupedByCodingItem[key].current += num(record.locFyCurrent);
+      groupedByCodingItem[key].last += num(record.locFyLast);
+    });
+
+    const groupedRows = Object.values(groupedByCodingItem).sort((left, right) => right.current - left.current);
+
+    let runningAmount = 0;
+    const pareto = [];
+    groupedRows.forEach((row) => {
+      if (!row.current) return;
+      const beforePct = budgetTotal ? (runningAmount / budgetTotal) * 100 : 0;
+      if (beforePct >= 80) return;
+      const sharePct = (row.current / budgetTotal) * 100;
+      runningAmount += row.current;
+      const cumulativePct = (runningAmount / budgetTotal) * 100;
+      const increasePct = row.last ? ((row.current - row.last) / row.last) * 100 : row.current ? Number.POSITIVE_INFINITY : 0;
+      pareto.push({
+        coding: row.coding,
+        item: row.item,
+        currentBudget: allocationRoundedValue(row.current),
+        sharePercent: allocationRoundedValue(sharePct),
+        cumulativePercent: allocationRoundedValue(cumulativePct),
+        lastYearBudget: allocationRoundedValue(row.last),
+        changePercent: Number.isFinite(increasePct) ? allocationRoundedValue(increasePct) : "New"
+      });
+    });
+
+    const alerts = groupedRows
+      .map((row) => {
+        const increasePct = row.last ? ((row.current - row.last) / row.last) * 100 : row.current ? Number.POSITIVE_INFINITY : 0;
+        return {
+          coding: row.coding,
+          item: row.item,
+          lastYearBudget: allocationRoundedValue(row.last),
+          currentBudget: allocationRoundedValue(row.current),
+          increasePercent: Number.isFinite(increasePct) ? allocationRoundedValue(increasePct) : "New",
+          flag: !Number.isFinite(increasePct) || increasePct >= 80 ? "Above 80%" : increasePct >= 75 ? "Around 80%" : ""
+        };
+      })
+      .filter((row) => row.flag);
+
+    return { pareto, alerts };
+  }
+
+  function exportDashboardWorkbook() {
+    if (!window.XLSX) {
+      alert("XLSX library is not available.");
+      return;
+    }
+
+    const records = rowsForDashboard();
+    const appliedEntries = getAppliedAllocationEntries();
+    const selectedCodingCount = appliedEntries.length;
+    const allocationMode = selectedCodingCount ? "Distributed" : "Fixed Cost";
+    const modeSuffix =
+      allocationMode === "Distributed" && selectedCodingCount
+        ? ` (${selectedCodingCount} coding${selectedCodingCount > 1 ? "s" : ""})`
+        : "";
+
+    const currentYearBudget = records.reduce((sum, record) => sum + num(record.locFyCurrent), 0);
+    const lastYearBudget = records.reduce((sum, record) => sum + num(record.locFyLast), 0);
+    const totalExpense = records.reduce((sum, record) => sum + num(record.locLe), 0);
+    const remaining = currentYearBudget - totalExpense;
+    const utilizedAmount = currentYearBudget - remaining;
+    const utilization = currentYearBudget ? (utilizedAmount / currentYearBudget) * 100 : 0;
+    const growth = totalExpense ? ((currentYearBudget - totalExpense) / totalExpense) * 100 : 0;
+
+    const locationGroups = groupedRows(records, "location");
+    const categoryGroups = groupedRows(records, "categoryIt");
+    const ownerGroups = groupedRows(records, "owner");
+
+    const expenseByLocation = {};
+    records.forEach((record) => {
+      const location = record.location || "Unassigned";
+      expenseByLocation[location] = (expenseByLocation[location] || 0) + num(record.locLe);
+    });
+    const locationChartItems = locationGroups.map(([location, budget]) => ({
+      location,
+      currentBudget: allocationRoundedValue(budget),
+      usedBudget: allocationRoundedValue(Math.min(Math.max(num(expenseByLocation[location] || 0), 0), budget)),
+      remainingBudget: allocationRoundedValue(Math.max(budget - Math.max(num(expenseByLocation[location] || 0), 0), 0))
+    }));
+
+    const yearGroups = {};
+    records.forEach((record) => {
+      const key = record.financialYear || "Unassigned";
+      if (!yearGroups[key]) yearGroups[key] = { budget: 0, le: 0 };
+      yearGroups[key].budget += num(record.locFyCurrent);
+      yearGroups[key].le += num(record.locLe);
+    });
+    const growthSeries = Object.keys(yearGroups)
+      .sort()
+      .map((year) => ({
+        financialYear: year,
+        budget: allocationRoundedValue(yearGroups[year].budget),
+        le: allocationRoundedValue(yearGroups[year].le)
+      }));
+
+    const topLocations = locationGroups.map((item) => item[0]);
+    const topCategories = categoryGroups.map((item) => item[0]);
+    const heatmapMatrix = {};
+    topLocations.forEach((location) => {
+      heatmapMatrix[location] = {};
+      topCategories.forEach((category) => {
+        heatmapMatrix[location][category] = 0;
+      });
+    });
+    records.forEach((record) => {
+      if (!topLocations.includes(record.location) || !topCategories.includes(record.categoryIt)) return;
+      heatmapMatrix[record.location][record.categoryIt] += num(record.locFyCurrent);
+    });
+    const heatmapRows = [];
+    topLocations.forEach((location) => {
+      topCategories.forEach((category) => {
+        heatmapRows.push({
+          location,
+          category,
+          budget: allocationRoundedValue(num((heatmapMatrix[location] || {})[category]))
+        });
+      });
+    });
+
+    const top80 = computeDashboardTop80(records, currentYearBudget);
+
+    const filters = state.dashboardFilters || {};
+    const workbook = window.XLSX.utils.book_new();
+    const timestamp = new Date();
+    const fileName = `Dashboard-${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(
+      timestamp.getDate()
+    ).padStart(2, "0")}.xlsx`;
+
+    function appendSheet(name, rows) {
+      const safeRows = (rows || []).length ? rows : [{ Message: "No data for current filters" }];
+      const sheet = window.XLSX.utils.json_to_sheet(safeRows);
+      window.XLSX.utils.book_append_sheet(workbook, sheet, name);
+    }
+
+    appendSheet("Filters", [
+      {
+        location: filters.location || "All",
+        category: filters.category || "All",
+        financialYear: filters.financialYear || "All",
+        owner: filters.owner || "All",
+        allocationMode: allocationMode + modeSuffix
+      }
+    ]);
+
+    appendSheet("KPIs", [
+      {
+        lastYearBudget: allocationRoundedValue(lastYearBudget),
+        currentYearBudget: allocationRoundedValue(currentYearBudget),
+        le: allocationRoundedValue(totalExpense),
+        remainingBudget: allocationRoundedValue(remaining),
+        utilizationPercent: allocationRoundedValue(utilization),
+        growthPercent: allocationRoundedValue(growth)
+      }
+    ]);
+
+    appendSheet(
+      "Planner Rows",
+      records.map((record) => ({
+        financialYear: record.financialYear || "",
+        location: record.location || "",
+        coding: record.coding || "",
+        item: record.item || "",
+        owner: record.owner || record.owner1 || "",
+        costDistribution: record.__allocationType || "",
+        currentBudget: allocationRoundedValue(record.locFyCurrent),
+        le: allocationRoundedValue(record.locLe),
+        lastYearBudget: allocationRoundedValue(record.locFyLast),
+        category: record.categoryIt || record.subCategoryMapped || record.appCate || ""
+      }))
+    );
+
+    appendSheet(
+      "Location Pulse",
+      locationChartItems.map((row) => ({
+        location: row.location,
+        currentBudget: row.currentBudget,
+        usedBudget: row.usedBudget,
+        remainingBudget: row.remainingBudget
+      }))
+    );
+
+    appendSheet(
+      "Category Mix",
+      categoryGroups.map(([category, value]) => ({
+        category,
+        currentBudget: allocationRoundedValue(value),
+        sharePercent: currentYearBudget ? allocationRoundedValue((num(value) / currentYearBudget) * 100) : 0
+      }))
+    );
+
+    appendSheet("Growth Trajectory", growthSeries);
+
+    appendSheet(
+      "Owner Leaderboard",
+      ownerGroups.map(([owner, value]) => ({
+        owner,
+        currentBudget: allocationRoundedValue(value),
+        sharePercent: currentYearBudget ? allocationRoundedValue((num(value) / currentYearBudget) * 100) : 0
+      }))
+    );
+
+    appendSheet("Heatmap", heatmapRows);
+    appendSheet("Top80 Contributors", top80.pareto);
+    appendSheet("80pct Alerts", top80.alerts);
+
+    window.XLSX.writeFile(workbook, fileName);
+  }
+
+  async function exportDashboardPdf() {
+    if (!window.html2canvas || !window.jspdf || !window.jspdf.jsPDF) {
+      alert("PDF libraries are not available.");
+      return;
+    }
+
+    const target = document.getElementById("dashboardContent");
+    if (!target) {
+      alert("Dashboard content is not available.");
+      return;
+    }
+
+    const exportSections = Array.from(target.children).filter((node) => {
+      if (!(node instanceof HTMLElement)) return false;
+      if (node.classList.contains("dashboard-filter-panel")) return false;
+      return true;
+    });
+    if (!exportSections.length) {
+      alert("No dashboard visualizations available to export.");
+      return;
+    }
+
+    const exportRoot = document.createElement("div");
+    exportRoot.style.position = "fixed";
+    exportRoot.style.left = "-100000px";
+    exportRoot.style.top = "0";
+    exportRoot.style.width = `${Math.max(target.scrollWidth, target.clientWidth, 1200)}px`;
+    exportRoot.style.background = "#ffffff";
+    exportRoot.style.padding = "12px";
+    exportRoot.style.boxSizing = "border-box";
+    exportRoot.style.display = "grid";
+    exportRoot.style.gap = "14px";
+
+    exportSections.forEach((section) => {
+      exportRoot.appendChild(section.cloneNode(true));
+    });
+    document.body.appendChild(exportRoot);
+
+    const PDF = window.jspdf.jsPDF;
+    const pdf = new PDF("p", "mm", "a4");
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 8;
+    const drawWidth = pageWidth - margin * 2;
+    const pageContentHeight = pageHeight - margin * 2;
+    const maxPages = 3;
+
+    try {
+      const mergedCanvas = await window.html2canvas(exportRoot, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        width: Math.max(exportRoot.scrollWidth, exportRoot.clientWidth),
+        height: Math.max(exportRoot.scrollHeight, exportRoot.clientHeight),
+        windowWidth: Math.max(exportRoot.scrollWidth, exportRoot.clientWidth),
+        windowHeight: Math.max(exportRoot.scrollHeight, exportRoot.clientHeight),
+        scrollX: 0,
+        scrollY: 0
+      });
+
+      const imgData = mergedCanvas.toDataURL("image/png");
+      const fullImageHeight = (mergedCanvas.height * drawWidth) / mergedCanvas.width;
+      const maxTotalHeight = pageContentHeight * maxPages;
+      const shrinkScale = fullImageHeight > maxTotalHeight ? maxTotalHeight / fullImageHeight : 1;
+      const renderWidth = drawWidth * shrinkScale;
+      const renderHeight = fullImageHeight * shrinkScale;
+      const offsetX = margin + (drawWidth - renderWidth) / 2;
+      const pagesNeeded = Math.max(1, Math.min(maxPages, Math.ceil(renderHeight / pageContentHeight)));
+
+      for (let pageIndex = 0; pageIndex < pagesNeeded; pageIndex += 1) {
+        if (pageIndex > 0) pdf.addPage();
+        const yOffset = margin - pageIndex * pageContentHeight;
+        pdf.addImage(imgData, "PNG", offsetX, yOffset, renderWidth, renderHeight, undefined, "FAST");
+      }
+    } finally {
+      exportRoot.remove();
+    }
+
+    const timestamp = new Date();
+    const fileName = `Dashboard-${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(
+      timestamp.getDate()
+    ).padStart(2, "0")}.pdf`;
+    pdf.save(fileName);
+  }
+
+  function exportAllocationMatrixWorkbook() {
+    if (!window.XLSX) {
+      alert("XLSX library is not available.");
+      return;
+    }
+
+    const controls = state.allocationControls || {};
+    const matrixFilters = state.allocationMatrixFilters || {};
+    const appliedEntries = getAppliedAllocationEntries();
+    const allocationContext = getAllocationBudgetContext(getRecords(), appliedEntries);
+    const effectiveRecords = allocationContext.records;
+    const manualEdits =
+      state && state.allocationMatrixEdits && typeof state.allocationMatrixEdits === "object" ? state.allocationMatrixEdits : {};
+    const locations = getAllLocations();
+
+    const grouped = {};
+    effectiveRecords.forEach((record) => {
+      const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
+      const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
+      if (!grouped[key]) {
+        grouped[key] = {
+          financialYear: record.financialYear || "",
+          coding: record.coding || "",
+          item: resolvedItem || "",
+          owner: record.owner || "",
+          allocationType: record.__allocationType || "Fixed Cost",
+          locations: {}
+        };
+      }
+      grouped[key].locations[record.location || "Unassigned"] =
+        (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
+    });
+
+    const matrixLocation = String(matrixFilters.location || "");
+    const matrixCoding = String(matrixFilters.coding || "");
+    const matrixYear = String(matrixFilters.financialYear || "");
+    const matrixOwner = String(matrixFilters.owner || "");
+
+    const entries = Object.values(grouped)
+      .filter((entry) => {
+        if (matrixYear && String(entry.financialYear || "") !== matrixYear) return false;
+        if (matrixCoding && normalizeText(entry.coding) !== normalizeText(matrixCoding)) return false;
+        if (matrixOwner && normalizeText(entry.owner) !== normalizeText(matrixOwner)) return false;
+        if (matrixLocation) return num(entry.locations && entry.locations[matrixLocation]) > 0;
+        return true;
+      })
+      .sort((a, b) => {
+        const yearSort = String(a.financialYear || "").localeCompare(String(b.financialYear || ""));
+        if (yearSort) return yearSort;
+        const codingSort = String(a.coding || "").localeCompare(String(b.coding || ""));
+        if (codingSort) return codingSort;
+        return String(a.owner || "").localeCompare(String(b.owner || ""));
+      });
+
+    const exportRows = entries.map((entry) => {
+      const rowKey = allocationRowKey(entry.coding || "", entry.item || "", entry.owner || "", entry.financialYear || "");
+      const row = {
+        financialYear: entry.financialYear || "Unassigned",
+        coding: entry.coding || "",
+        item: entry.item || "",
+        owner: entry.owner || "",
+        costDistribution: entry.allocationType || "Fixed Cost"
+      };
+      let total = 0;
+      locations.forEach((location) => {
+        const baseValue = num(entry.locations[location] || 0);
+        const editKey = allocationCellKey(rowKey, location);
+        const editedValue =
+          Object.prototype.hasOwnProperty.call(manualEdits, editKey) && normalizeText(entry.allocationType) === "distributed"
+            ? Math.max(0, num(manualEdits[editKey]))
+            : baseValue;
+        row[location] = allocationRoundedValue(editedValue);
+        total += editedValue;
+      });
+      row.totalBudget = allocationRoundedValue(total);
+      return row;
+    });
+
+    const workbook = window.XLSX.utils.book_new();
+    const filterSheet = [
+      {
+        matrixLocation: matrixLocation || "All",
+        matrixCoding: matrixCoding || "All",
+        matrixFinancialYear: matrixYear || "All",
+        matrixOwner: matrixOwner || "All",
+        controlCoding: controls.coding || "",
+        controlOwner: controls.owner || "",
+        controlYear: controls.financialYear || ""
+      }
+    ];
+    const rows = exportRows.length ? exportRows : [{ Message: "No rows for selected matrix filters." }];
+    const filterWs = window.XLSX.utils.json_to_sheet(filterSheet);
+    const matrixWs = window.XLSX.utils.json_to_sheet(rows);
+    window.XLSX.utils.book_append_sheet(workbook, filterWs, "Matrix Filters");
+    window.XLSX.utils.book_append_sheet(workbook, matrixWs, "Allocation Matrix");
+
+    const timestamp = new Date();
+    const fileName = `Allocation-Matrix-${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(
+      timestamp.getDate()
+    ).padStart(2, "0")}.xlsx`;
+    window.XLSX.writeFile(workbook, fileName);
+  }
+
+  function getAllocationCombinedRowsForReport() {
+    const appliedEntries = getAppliedAllocationEntries();
+    const allocationContext = getAllocationBudgetContext(getRecords(), appliedEntries);
+    const effectiveRecords = allocationContext.records;
+    const manualEdits =
+      state && state.allocationMatrixEdits && typeof state.allocationMatrixEdits === "object" ? state.allocationMatrixEdits : {};
+    const locations = getAllLocations();
+
+    const grouped = {};
+    effectiveRecords.forEach((record) => {
+      const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
+      const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
+      if (!grouped[key]) {
+        grouped[key] = {
+          financialYear: record.financialYear || "",
+          coding: record.coding || "",
+          item: resolvedItem || "",
+          owner: record.owner || "",
+          allocationType: record.__allocationType || "Fixed Cost",
+          locations: {}
+        };
+      }
+      grouped[key].locations[record.location || "Unassigned"] =
+        (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
+    });
+
+    const entries = Object.values(grouped).sort((a, b) => {
+      const yearSort = String(a.financialYear || "").localeCompare(String(b.financialYear || ""));
+      if (yearSort) return yearSort;
+      const codingSort = String(a.coding || "").localeCompare(String(b.coding || ""));
+      if (codingSort) return codingSort;
+      return String(a.owner || "").localeCompare(String(b.owner || ""));
+    });
+
+    return entries.map((entry) => {
+      const rowKey = allocationRowKey(entry.coding || "", entry.item || "", entry.owner || "", entry.financialYear || "");
+      const row = {
+        financialYear: entry.financialYear || "Unassigned",
+        coding: entry.coding || "",
+        item: entry.item || "",
+        owner: entry.owner || "",
+        costDistribution: entry.allocationType || "Fixed Cost"
+      };
+      let total = 0;
+      locations.forEach((location) => {
+        const baseValue = num(entry.locations[location] || 0);
+        const editKey = allocationCellKey(rowKey, location);
+        const editedValue =
+          Object.prototype.hasOwnProperty.call(manualEdits, editKey) && normalizeText(entry.allocationType) === "distributed"
+            ? Math.max(0, num(manualEdits[editKey]))
+            : baseValue;
+        row[location] = allocationRoundedValue(editedValue);
+        total += editedValue;
+      });
+      row.totalBudget = allocationRoundedValue(total);
+      return row;
+    });
+  }
+
+  function exportPlannerSavedRecordsWorkbook() {
+    if (!window.XLSX) {
+      alert("XLSX library is not available.");
+      return;
+    }
+
+    const savedFilters = state.plannerSavedFilters || {};
+    const savedYear = String(savedFilters.financialYear || "");
+    const savedLocation = String(savedFilters.location || "");
+    const savedCoding = String(savedFilters.coding || "");
+    const savedItem = String(savedFilters.item || "");
+    const savedOwner = String(savedFilters.owner || "");
+
+    const allRecords = getRecords();
+    const filteredRecords = allRecords.filter((record) => {
+      if (savedYear && savedYear !== "All" && String(record.financialYear || "") !== savedYear) return false;
+      if (savedLocation && savedLocation !== "All" && String(record.location || "") !== savedLocation) return false;
+      if (savedCoding && savedCoding !== "All" && normalizeText(record.coding) !== normalizeText(savedCoding)) return false;
+      if (savedItem && savedItem !== "All" && normalizeText(record.item) !== normalizeText(savedItem)) return false;
+      if (savedOwner && savedOwner !== "All" && normalizeText(record.owner) !== normalizeText(savedOwner)) return false;
+      return true;
+    });
+
+    const rows = filteredRecords.map((record) => {
+      const last = num(record.locFyLast);
+      const current = num(record.locFyCurrent);
+      const changePct = last ? ((current - last) / last) * 100 : 0;
+      return {
+        financialYear: record.financialYear || "",
+        location: record.location || "",
+        coding: record.coding || "",
+        item: record.item || "",
+        currentFY: allocationRoundedValue(record.locFyCurrent || 0),
+        fyLastYear: allocationRoundedValue(record.locFyLast || 0),
+        percentChange: allocationRoundedValue(changePct),
+        le: allocationRoundedValue(record.locLe || 0),
+        owner: record.owner || ""
+      };
+    });
+
+    const workbook = window.XLSX.utils.book_new();
+    const filterSheet = [
+      {
+        financialYear: savedYear || "All",
+        location: savedLocation || "All",
+        coding: savedCoding || "All",
+        item: savedItem || "All",
+        owner: savedOwner || "All"
+      }
+    ];
+    const dataSheet = rows.length ? rows : [{ Message: "No rows for selected Saved Records filters." }];
+
+    const filterWs = window.XLSX.utils.json_to_sheet(filterSheet);
+    const dataWs = window.XLSX.utils.json_to_sheet(dataSheet);
+    window.XLSX.utils.book_append_sheet(workbook, filterWs, "Saved Records Filters");
+    window.XLSX.utils.book_append_sheet(workbook, dataWs, "Saved Records");
+
+    const timestamp = new Date();
+    const fileName = `Saved-Records-${timestamp.getFullYear()}-${String(timestamp.getMonth() + 1).padStart(2, "0")}-${String(
+      timestamp.getDate()
+    ).padStart(2, "0")}.xlsx`;
+    window.XLSX.writeFile(workbook, fileName);
+  }
+
+  window.OpexUI = {
+    renderAll,
+    setUnitBudgetFilter,
+    preparePlannerSave,
+    exportDashboardWorkbook,
+    exportDashboardPdf,
+    exportAllocationMatrixWorkbook,
+    exportPlannerSavedRecordsWorkbook,
+    getAllocationCombinedRowsForReport
+  };
 })();
