@@ -385,19 +385,39 @@
     return h.normalizeRecord ? h.normalizeRecord(base) : base;
   }
 
-  function saveCurrentRecord() {
-    const record = recordFromForm();
-    if (!record.coding && !record.item && !record.location) return;
+ function saveCurrentRecord() {
+  const record = recordFromForm();
+  if (!record.coding && !record.item && !record.location) return;
 
-    const existingIndex = (state.records || []).findIndex((row) => row.id === record.id);
-    if (existingIndex >= 0) state.records.splice(existingIndex, 1, record);
-    else state.records.push(record);
+  fetch("https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(record)
+  })
+  .then(res => res.json())
+  .then(data => {
+    console.log("Saved to Railway DB:", data);
+  })
+  .catch(err => {
+    console.error("Railway save failed:", err);
+  });
 
-    state.records = recalculateRecords(state.records);
-    persist();
-    resetForm();
-    state.activeView = "plannerView";
+  const existingIndex = (state.records || []).findIndex((row) => row.id === record.id);
+
+  if (existingIndex >= 0) {
+    state.records.splice(existingIndex, 1, record);
+  } else {
+    state.records.push(record);
   }
+
+  state.records = recalculateRecords(state.records);
+
+  persist();
+  resetForm();
+  state.activeView = "plannerView";
+}
 
   function editRecord(id) {
     const record = (state.records || []).find((row) => row.id === id);
