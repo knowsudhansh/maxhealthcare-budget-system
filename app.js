@@ -5,6 +5,8 @@
   const h = data.helpers || {};
   const ALLOCATION_DB_KEY = "it_opex_allocation_db_v1";
   const ALLOCATION_MATRIX_EDITS_KEY = "it_opex_allocation_matrix_edits_v1";
+  const API_BASE = "https://maxhealthcare-budget-system-production.up.railway.app";
+  const LIVE_SYNC_INTERVAL_MS = 15000;
 
   const DRIVER_KEYS = ["newAmc", "newProject", "annualized", "priceIncrease", "newUnit", "licenseIncrease", "rest"];
 
@@ -175,7 +177,6 @@
   function persist() {
     if (h.saveRecords) h.saveRecords(state.records || []);
   }
-
   function loadAllocationDb() {
     try {
       const raw = localStorage.getItem(ALLOCATION_DB_KEY);
@@ -385,82 +386,119 @@
     return h.normalizeRecord ? h.normalizeRecord(base) : base;
   }
 
- function saveCurrentRecord() {
-  const record = recordFromForm();
-  console.log(JSON.stringify(record, null, 2));
-  if (!record.coding && !record.item && !record.location) return;
-
-  fetch("https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-body: JSON.stringify({
-  "Submitted At": new Date().toISOString(),
-
-  "Coding": record.coding || "",
-  "Item": record.item || "",
-
-  "Category_IT": record.categoryIt || "",
-  "Sub Category": record.subCategory || "",
-  "New Category": record.newCategory || "",
-  "App Cate.": record.appCate || "",
-  "Cate.3": record.cate3 || "",
-  "Cate.4": record.cate4 || "",
-
-  "Owner1": record.owner1 || "",
-  "Owner": record.owner || "",
-
-  "Cost Center / Department": record.costCenter || "",
-
-  "Financial Year": record.financialYear || "",
-  "Location": record.location || "",
-
-  "loc_fy_current": Number(record.locFyCurrent || 0),
-  "loc_le": Number(record.locLe || 0),
-
-  "new_amc": Number(record.newAmc || 0),
-  "new_project": Number(record.newProject || 0),
-  "annualized": Number(record.annualized || 0),
-  "price_increase": Number(record.priceIncrease || 0),
-  "new_unit": Number(record.newUnit || 0),
-  "license_increase": Number(record.licenseIncrease || 0),
-  "rest": Number(record.rest || 0)
-})
-  })
-  .then(res => res.json())
-  .then(data => {
-    console.log("Saved to Railway DB:", data);
-  })
-  .catch(err => {
-    console.error("Railway save failed:", err);
-  });
-
-  const existingIndex = (state.records || []).findIndex((row) => row.id === record.id);
-
-  if (existingIndex >= 0) {
-    state.records.splice(existingIndex, 1, record);
-  } else {
-    state.records.push(record);
+  function payloadFromRecord(record) {
+    return {
+      "Submitted At": new Date().toISOString(),
+      Coding: record.coding || "",
+      Item: record.item || "",
+      Category_IT: record.categoryIt || "",
+      "Sub Category": record.subCategory || "",
+      "New Category": record.newCategory || "",
+      "App Cate.": record.appCate || "",
+      "Cate.3": record.cate3 || "",
+      "Cate.4": record.cate4 || "",
+      Owner1: record.owner1 || "",
+      Owner: record.owner || "",
+      "Cost Center / Department": record.costCenter || "",
+      "Financial Year": record.financialYear || "",
+      Location: record.location || "",
+      loc_fy_current: Number(record.locFyCurrent || 0),
+      loc_le: Number(record.locLe || 0),
+      loc_fy_last: Number(record.locFyLast || 0),
+      new_amc: Number(record.newAmc || 0),
+      new_project: Number(record.newProject || 0),
+      annualized: Number(record.annualized || 0),
+      price_increase: Number(record.priceIncrease || 0),
+      new_unit: Number(record.newUnit || 0),
+      license_increase: Number(record.licenseIncrease || 0),
+      rest: Number(record.rest || 0)
+    };
   }
 
-  state.records = recalculateRecords(state.records);
+  async function saveCurrentRecord() {
+    const record = recordFromForm();
+    if (!record.coding && !record.item && !record.location) return;
 
-  persist();
-  resetForm();
+    const payload = payloadFromRecord(record);
+    const numericId = Number(record.id || state.editId);
+    const canUpdate = Number.isFinite(numericId) && numericId > 0;
+
+    const url = canUpdate ? `${API_BASE}/api/budget-data/${numericId}` : `${API_BASE}/api/budget-submissions`;
+    const method = canUpdate ? "PUT" : "POST";
+
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(`${method} failed (${response.status}): ${message}`);
+      }
+
+      await loadLiveBudgetData(false);
+      resetForm();
+      state.activeView = "plannerView";
+      render();
+    } catch (error) {
+      console.error("Save to Railway failed:", error);
+      // Fallback: keep user work locally so it is not lost.
+      const existingIndex = (state.records || []).findIndex((row) => String(row.id) === String(record.id));
+      if (existingIndex >= 0) state.records.splice(existingIndex, 1, record);
+      else state.records.unshift(record);
+      state.records = recalculateRecords(state.records);
+      persist();
+      resetForm();
+      state.activeView = "plannerView";
+      render();
+    }
+  }
+
+function editRecord(id) {
+
+  const record = (state.records || []).find(
+    (row) => String(row.id) === String(id)
+  );
+
+  if (!record) {
+    console.log("Edit record not found:", id);
+    return;
+  }
+
+  state.form = {
+    ...record
+  };
+
+  state.editId = record.id;
+
   state.activeView = "plannerView";
+
+  console.log("Editing record:", record);
 }
 
-  function editRecord(id) {
-    const record = (state.records || []).find((row) => row.id === id);
-    if (!record) return;
-    state.form = h.defaultForm ? h.defaultForm(record) : { ...record };
-    state.editId = id;
-    state.activeView = "plannerView";
-  }
+  async function deleteRecord(id) {
+    const numericId = Number(id);
+    const canDeleteRemote = Number.isFinite(numericId) && numericId > 0;
 
-  function deleteRecord(id) {
-    state.records = (state.records || []).filter((row) => row.id !== id);
+    if (canDeleteRemote) {
+      try {
+        const response = await fetch(`${API_BASE}/api/budget-data/${numericId}`, {
+          method: "DELETE"
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw new Error(`DELETE failed (${response.status}): ${message}`);
+        }
+        await loadLiveBudgetData(false);
+        return;
+      } catch (error) {
+        console.error("Remote delete failed:", error);
+      }
+    }
+
+    state.records = (state.records || []).filter((row) => String(row.id) !== String(id));
     state.records = recalculateRecords(state.records);
     persist();
   }
@@ -718,9 +756,25 @@ body: JSON.stringify({
     }
   }
 
-  function render() {
-    if (ui.renderAll) ui.renderAll();
-  }
+  let renderQueued = false;
+
+function render() {
+  if (renderQueued) return;
+
+  renderQueued = true;
+
+  requestAnimationFrame(() => {
+    try {
+      if (ui.renderAll) {
+        ui.renderAll();
+      }
+    } catch (err) {
+      console.error("Render Error:", err);
+    }
+
+    renderQueued = false;
+  });
+}
 
   function updatePlannerLiveCalculations() {
     const leInput = document.getElementById("planner-locLe");
@@ -755,8 +809,7 @@ body: JSON.stringify({
     if (action === "save-record") {
       syncPlannerFormFromDom();
       if (ui.preparePlannerSave) ui.preparePlannerSave();
-      saveCurrentRecord();
-      render();
+      saveCurrentRecord().catch((error) => console.error("Save action failed:", error));
       return;
     }
     if (action === "clear-form") {
@@ -770,8 +823,9 @@ body: JSON.stringify({
       return;
     }
     if (action === "delete-record" && id) {
-      deleteRecord(id);
-      render();
+      deleteRecord(id)
+        .then(() => render())
+        .catch((error) => console.error("Delete action failed:", error));
       return;
     }
     if (action === "download-report") {
@@ -1345,70 +1399,46 @@ body: JSON.stringify({
   }
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
-async function loadLiveBudgetData() {
+async function loadLiveBudgetData(logStatus) {
   try {
 
-    const response = await fetch(
-      "https://maxhealthcare-budget-system-production.up.railway.app/api/budget-data"
-    );
+    const response = await fetch(`${API_BASE}/api/budget-data`);
+    if (!response.ok) throw new Error(`Load failed (${response.status})`);
 
     const rows = await response.json();
 
     const remoteRecords = (Array.isArray(rows) ? rows : []).map(row => ({
-  id: row.id || "",
-  coding: row.coding || "",
-  item: row.item || "",
-  categoryIt: row.category_it || "",
-  subCategory: row.sub_category || "",
-  newCategory: row.new_category || "",
-  appCate: row.app_cate || "",
-  cate3: row.cate3 || "",
-  cate4: row.cate4 || "",
-  owner1: row.owner1 || "",
-  owner: row.owner || "",
-  location: row.location || "",
-  financialYear: row.financial_year || "",
-  locFyCurrent: Number(row.loc_fy_current || 0),
-  locLe: Number(row.loc_le || 0),
-  newAmc: Number(row.new_amc || 0),
-  newProject: Number(row.new_project || 0),
-  annualized: Number(row.annualized || 0),
-  priceIncrease: Number(row.price_increase || 0),
-  newUnit: Number(row.new_unit || 0),
-  licenseIncrease: Number(row.license_increase || 0),
-  rest: Number(row.rest || 0)
-}));
+      id: String(row.id || ""),
+      coding: row.coding || row.Coding || "",
+      item: row.item || row.Item || "",
+      categoryIt: row.category_it || row.Category_IT || "",
+      subCategory: row.sub_category || row["Sub Category"] || "",
+      newCategory: row.new_category || row["New Category"] || "",
+      appCate: row.app_cate || row["App Cate."] || "",
+      cate3: row.cate3 || row["Cate.3"] || "",
+      cate4: row.cate4 || row["Cate.4"] || "",
+      owner1: row.owner1 || row.Owner1 || "",
+      owner: row.owner || row.Owner || "",
+      costCenter: row.cost_center_department || row["Cost Center / Department"] || "",
+      location: row.location || row.Location || "",
+      financialYear: row.financial_year || row["Financial Year"] || "",
+      locFyCurrent: Number(row.loc_fy_current || row["loc_fy_current"] || 0),
+      locLe: Number(row.loc_le || row["loc_le"] || 0),
+      locFyLast: Number(row.loc_fy_last || row["loc_fy_last"] || 0),
+      newAmc: Number(row.new_amc || row["new_amc"] || 0),
+      newProject: Number(row.new_project || row["new_project"] || 0),
+      annualized: Number(row.annualized || row["annualized"] || 0),
+      priceIncrease: Number(row.price_increase || row["price_increase"] || 0),
+      newUnit: Number(row.new_unit || row["new_unit"] || 0),
+      licenseIncrease: Number(row.license_increase || row["license_increase"] || 0),
+      rest: Number(row.rest || 0)
+    }));
 
-    const localRecords = Array.isArray(state.records) ? state.records : [];
-    const mergedMap = {};
-    const recordKey = (record) => {
-      const idPart = String(record && record.id ? record.id : "").trim();
-      if (idPart) return `id::${idPart}`;
-      return [
-        normalizeText(record && record.coding),
-        normalizeText(record && record.item),
-        normalizeText(record && record.owner),
-        normalizeText(record && record.location),
-        String((record && record.financialYear) || "").trim(),
-        allocationRoundedValue(record && record.locFyCurrent),
-        allocationRoundedValue(record && record.locLe)
-      ].join("||");
-    };
-
-    remoteRecords.forEach((record) => {
-      mergedMap[recordKey(record)] = record;
-    });
-    // Keep local unsynced/manual records on top of remote payload so refresh does not wipe planner work.
-    localRecords.forEach((record) => {
-      mergedMap[recordKey(record)] = record;
-    });
-
-    state.records = recalculateRecords(Object.values(mergedMap));
+    state.records = recalculateRecords(remoteRecords);
     persist();
-
     render();
-
-    console.log("Live DB connected ✅");
+    if (!logStatus) return;
+console.log("Live DB connected ✅");
 
   } catch (error) {
 
@@ -1417,5 +1447,13 @@ async function loadLiveBudgetData() {
   }
 }
 
-loadLiveBudgetData();
+loadLiveBudgetData(true);
+window.setInterval(() => {
+  loadLiveBudgetData(false);
+}, LIVE_SYNC_INTERVAL_MS);
+render();
+
+window.addEventListener("error", (e) => {
+  console.error("Global JS Error:", e.error);
+});
 })();

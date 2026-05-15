@@ -58,7 +58,7 @@ app.use(express.json({ limit: "1mb" }));
 // CORS
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
@@ -214,6 +214,75 @@ async function insertBudgetSubmissionDb(row) {
   const [result] = await pool.execute(sql, params);
 
   return result.insertId || null;
+}
+
+async function updateBudgetSubmissionDb(id, row) {
+  const pool = await getMysqlPool();
+  if (!pool) return 0;
+
+  const sql = `
+    UPDATE budget_submissions
+    SET
+      coding = ?,
+      item = ?,
+      category_it = ?,
+      sub_category = ?,
+      new_category = ?,
+      app_cate = ?,
+      cate3 = ?,
+      cate4 = ?,
+      owner1 = ?,
+      owner = ?,
+      cost_center_department = ?,
+      financial_year = ?,
+      location = ?,
+      loc_fy_current = ?,
+      loc_le = ?,
+      new_amc = ?,
+      new_project = ?,
+      annualized = ?,
+      price_increase = ?,
+      new_unit = ?,
+      license_increase = ?,
+      rest = ?
+    WHERE id = ?
+  `;
+
+  const params = [
+    row["Coding"] || null,
+    row["Item"] || null,
+    row["Category_IT"] || null,
+    row["Sub Category"] || null,
+    row["New Category"] || null,
+    row["App Cate."] || null,
+    row["Cate.3"] || null,
+    row["Cate.4"] || null,
+    row["Owner1"] || null,
+    row["Owner"] || null,
+    row["Cost Center / Department"] || null,
+    row["Financial Year"] || null,
+    row["Location"] || null,
+    row["loc_fy_current"] || 0,
+    row["loc_le"] || 0,
+    row["new_amc"] || 0,
+    row["new_project"] || 0,
+    row["annualized"] || 0,
+    row["price_increase"] || 0,
+    row["new_unit"] || 0,
+    row["license_increase"] || 0,
+    row["rest"] || 0,
+    id
+  ];
+
+  const [result] = await pool.execute(sql, params);
+  return result.affectedRows || 0;
+}
+
+async function deleteBudgetSubmissionDb(id) {
+  const pool = await getMysqlPool();
+  if (!pool) return 0;
+  const [result] = await pool.execute("DELETE FROM budget_submissions WHERE id = ?", [id]);
+  return result.affectedRows || 0;
 }
 
 async function getMysqlHealth() {
@@ -434,6 +503,39 @@ app.get("/api/budget-data", async (req, res) => {
     res.status(500).json({
       message: error.message
     });
+  }
+});
+
+app.put("/api/budget-data/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ message: "Invalid id." });
+    }
+    const row = normalizeSubmission(req.body || {});
+    const affectedRows = await updateBudgetSubmissionDb(id, row);
+    if (!affectedRows) {
+      return res.status(404).json({ message: "Record not found." });
+    }
+    return res.status(200).json({ message: "Updated successfully.", affectedRows });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/budget-data/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ message: "Invalid id." });
+    }
+    const affectedRows = await deleteBudgetSubmissionDb(id);
+    if (!affectedRows) {
+      return res.status(404).json({ message: "Record not found." });
+    }
+    return res.status(200).json({ message: "Deleted successfully.", affectedRows });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
   }
 });
 

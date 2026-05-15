@@ -312,20 +312,6 @@ async function loadDatabaseData() {
   }
 }
   
-      const parsed = JSON.parse(raw);
-      if (!parsed || !parsed.payload) {
-        return;
-      }
-
-      state.data = parsed.payload;
-      state.sourceName = parsed.sourceName || parsed.payload.sourceName || "Workbook";
-      state.lastModified = parsed.lastModified || 0;
-      populateFilters();
-      setSyncStatus(`Loaded cached workbook: ${state.sourceName}`, "success");
-    } catch (error) {
-      console.error(error);
-    }
-  }
 
   function populateFilters() {
     const dimensions = (state.data && state.data.dimensions) || {
@@ -1060,4 +1046,4 @@ async function loadDatabaseData() {
     const sheet = window.XLSX.utils.json_to_sheet(safeRows.length ? safeRows : [{ Message: "No data for current filters" }]);
     window.XLSX.utils.book_append_sheet(workbook, sheet, name);
   }
-}
+})();
