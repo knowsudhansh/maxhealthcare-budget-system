@@ -395,7 +395,7 @@
     headers: {
       "Content-Type": "application/json"
     },
-   body: JSON.stringify({
+body: JSON.stringify({
   "Submitted At": new Date().toISOString(),
 
   "Coding": record.coding || "",
@@ -411,7 +411,7 @@
   "Owner1": record.owner1 || "",
   "Owner": record.owner || "",
 
-  "Cost Center / Department": record.costCenterDepartment || "",
+  "Cost Center / Department": record.costCenter || "",
 
   "Financial Year": record.financialYear || "",
   "Location": record.location || "",
