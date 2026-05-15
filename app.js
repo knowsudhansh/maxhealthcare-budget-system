@@ -387,7 +387,7 @@
 
  function saveCurrentRecord() {
   const record = recordFromForm();
-  console.log("FULL RECORD", record);
+  console.log(JSON.stringify(record, null, 2));
   if (!record.coding && !record.item && !record.location) return;
 
   fetch("https://maxhealthcare-budget-system-production.up.railway.app/api/budget-submissions", {
