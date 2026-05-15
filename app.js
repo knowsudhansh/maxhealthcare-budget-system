@@ -394,7 +394,22 @@
     headers: {
       "Content-Type": "application/json"
     },
-    body: JSON.stringify(record)
+    body: JSON.stringify({
+  "Submitted At": new Date().toISOString(),
+  "Coding": record.coding || "",
+  "Item": record.item || "",
+  "Category_IT": record.categoryIt || "",
+  "Sub Category": record.subCategory || "",
+  "New Category": record.newCategory || "",
+  "App Cate.": record.appCate || "",
+  "Cate.3": record.cate3 || "",
+  "Cate.4": record.cate4 || "",
+  "Owner1": record.owner1 || "",
+  "Owner": record.owner || "",
+  "Cost Center / Department": record.costCenterDepartment || "",
+  "Financial Year": record.financialYear || "",
+  "Location": record.location || ""
+})
   })
   .then(res => res.json())
   .then(data => {
