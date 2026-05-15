@@ -1956,6 +1956,17 @@
           ${selectCard("planner-costDistribution", "Cost Distribution", form.costDistribution || "", optionValuesForKey("costDistribution"), "Select Cost Distribution")}
           ${selectCard("planner-financialYear", "Financial Year", form.financialYear || "", yearOptions, "Select financial year")}
           ${selectCard("planner-location", "MAX Hospital", form.location || "", locationOptions, "Select location")}
+          ${
+            form.financialYear && form.location
+              ? selectCard(
+                  "planner-entryType",
+                  "Entry Type",
+                  form.entryType || "Budget Taken",
+                  ["Budget Taken", "Expense"],
+                  "Select entry type"
+                )
+              : ""
+          }
         </div>
         ${
           showLocationSection
@@ -1964,7 +1975,7 @@
               <div class="form-grid-compact planner-detail-grid">
                 ${inputCard(
                   "planner-locLe",
-                  `${selectedLocation} LE (Last Year Expense)`,
+                  form.entryType === "Expense" ? `${selectedLocation} Expense (Same FY)` : `${selectedLocation} LE (Last Year Expense)`,
                   form.locLe || "",
                   isNewProjectEntry ? "New project: LE not required" : "Enter / auto-pull LE",
                   "number",
@@ -1974,8 +1985,10 @@
                   "planner-locFyCurrent",
                   `${selectedLocation} FY ${selectedYear} (Current Year)`,
                   form.locFyCurrent || "",
-                  "Enter chosen year FY",
+                  form.entryType === "Expense" ? "Auto-pulled from saved budget for the same FY" : "Enter chosen year FY",
                   "number"
+                  ,
+                  form.entryType === "Expense"
                 )}
                 ${inputCard(
                   "planner-locFyLast",
@@ -2349,34 +2362,56 @@
     const codingOptions = Object.values(codingOptionMap).sort((left, right) => String(left).localeCompare(String(right)));
     const allocationContext = getAllocationBudgetContext(getRecords(), appliedEntries);
     const effectiveRecords = allocationContext.records;
-    const manualEdits =
-      state && state.allocationMatrixEdits && typeof state.allocationMatrixEdits === "object" ? state.allocationMatrixEdits : {};
+    const matrixRowsFromServer = Array.isArray(state.allocationMatrixRows) ? state.allocationMatrixRows : null;
 
     const grouped = {};
-    effectiveRecords.forEach((record) => {
-      const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
-      const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
-      if (!grouped[key]) {
-        grouped[key] = {
-          financialYear: record.financialYear || "",
-          coding: record.coding || "",
-          item: resolvedItem || "",
-          owner: record.owner || "",
-          totalBudget: 0,
-          allocationType: record.__allocationType || "Fixed Cost",
-          locations: {}
-        };
-      }
-      if (!grouped[key].item && resolvedItem) {
-        grouped[key].item = resolvedItem;
-      }
-      if (grouped[key].allocationType !== (record.__allocationType || "Fixed Cost")) {
-        grouped[key].allocationType = "Mixed";
-      }
-      grouped[key].totalBudget += num(record.locFyCurrent);
-      grouped[key].locations[record.location || "Unassigned"] =
-        (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
-    });
+    if (matrixRowsFromServer && matrixRowsFromServer.length) {
+      matrixRowsFromServer.forEach((row) => {
+        const year = String(row.financialYear || "");
+        const coding = String(row.coding || "");
+        const owner = String(row.owner || "");
+        const item = String(row.item || "");
+        const allocationType = String(row.costDistribution || "Distributed");
+        const key = [year, coding, item, owner].join("||");
+        if (!grouped[key]) {
+          grouped[key] = {
+            id: row.id || "",
+            financialYear: year,
+            coding,
+            item,
+            owner,
+            totalBudget: num(row.totalBudget || 0),
+            allocationType,
+            locations: Object.assign({}, row.locationAmounts || {})
+          };
+        }
+      });
+    } else {
+      effectiveRecords.forEach((record) => {
+        const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
+        const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
+        if (!grouped[key]) {
+          grouped[key] = {
+            financialYear: record.financialYear || "",
+            coding: record.coding || "",
+            item: resolvedItem || "",
+            owner: record.owner || "",
+            totalBudget: 0,
+            allocationType: record.__allocationType || "Fixed Cost",
+            locations: {}
+          };
+        }
+        if (!grouped[key].item && resolvedItem) {
+          grouped[key].item = resolvedItem;
+        }
+        if (grouped[key].allocationType !== (record.__allocationType || "Fixed Cost")) {
+          grouped[key].allocationType = "Mixed";
+        }
+        grouped[key].totalBudget += num(record.locFyCurrent);
+        grouped[key].locations[record.location || "Unassigned"] =
+          (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
+      });
+    }
 
     const allEntries = Object.values(grouped)
       .filter((entry) => {
@@ -2415,11 +2450,9 @@
         .map((location) => {
           const baseValue = num(entry.locations[location] || 0);
           baseByLocation[location] = baseValue;
-          const cellKey = allocationCellKey(rowKey, location);
-          const hasManualEdit = canEditRow && Object.prototype.hasOwnProperty.call(manualEdits, cellKey);
-          const editedValue = canEditRow && hasManualEdit ? Math.max(0, num(manualEdits[cellKey])) : baseValue;
+          const editedValue = baseValue;
           currentByLocation[location] = editedValue;
-          const isEdited = hasManualEdit && allocationRoundedValue(editedValue) !== allocationRoundedValue(baseValue);
+          const isEdited = false;
           editableTotal += editedValue;
 
           return `
@@ -2460,6 +2493,7 @@
                   type="button"
                   class="btn btn-soft allocation-row-btn"
                   data-action="allocation-row-edit"
+                  data-matrix-id="${esc(String(entry.id || ""))}"
                   data-row-key="${esc(rowKey)}"
                   data-year="${esc(entry.financialYear || "")}"
                   data-coding="${esc(entry.coding || "")}"
@@ -2482,6 +2516,7 @@
             type="button"
             class="btn btn-danger allocation-row-btn"
             data-action="allocation-row-delete"
+            data-matrix-id="${esc(String(entry.id || ""))}"
             data-row-key="${esc(rowKey)}"
             data-year="${esc(entry.financialYear || "")}"
             data-coding="${esc(entry.coding || "")}"

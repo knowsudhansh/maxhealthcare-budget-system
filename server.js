@@ -558,6 +558,214 @@ app.get("/api/allocation-data", async (req, res) => {
   }
 });
 
+async function upsertAllocationRecordDb(payload) {
+  const pool = await getMysqlPool();
+  if (!pool) return null;
+
+  const coding = sanitize(payload.coding || payload.Coding);
+  const owner = sanitize(payload.owner || payload.Owner);
+  const financialYear = sanitize(payload.financialYear || payload["Financial Year"] || payload.year);
+  const item = sanitize(payload.item || payload.Item);
+  const mode = sanitize(payload.mode || payload.Mode || "Distributed") || "Distributed";
+  const amountInput = payload.amountInput === "" || payload.amountInput == null ? null : Number(payload.amountInput || 0);
+  const percentInput = payload.percentInput === "" || payload.percentInput == null ? null : Number(payload.percentInput || 0);
+  const targetAmount = Number(payload.targetAmount || 0);
+
+  if (!coding || !owner || !financialYear) return null;
+
+  const sql = `
+    INSERT INTO allocation_records (
+      coding,
+      item,
+      owner,
+      financial_year,
+      mode,
+      amount_input,
+      percent_input,
+      target_amount,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      item = VALUES(item),
+      mode = VALUES(mode),
+      amount_input = VALUES(amount_input),
+      percent_input = VALUES(percent_input),
+      target_amount = VALUES(target_amount),
+      updated_at = NOW()
+  `;
+
+  const params = [coding, item, owner, financialYear, mode, amountInput, percentInput, targetAmount];
+  await pool.execute(sql, params);
+
+  const [rows] = await pool.execute(
+    "SELECT * FROM allocation_records WHERE coding = ? AND owner = ? AND financial_year = ? LIMIT 1",
+    [coding, owner, financialYear]
+  );
+  return rows && rows[0] ? rows[0] : null;
+}
+
+async function deleteAllocationRecordDb(id) {
+  const pool = await getMysqlPool();
+  if (!pool) return 0;
+  const [result] = await pool.execute("DELETE FROM allocation_records WHERE id = ?", [id]);
+  return result.affectedRows || 0;
+}
+
+app.post("/api/allocation-data", async (req, res) => {
+  try {
+    const saved = await upsertAllocationRecordDb(req.body || {});
+    if (!saved) {
+      return res.status(400).json({ message: "Missing coding/owner/financialYear." });
+    }
+    return res.status(200).json(saved);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/allocation-data/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ message: "Invalid id." });
+    }
+    const affectedRows = await deleteAllocationRecordDb(id);
+    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    return res.status(200).json({ message: "Deleted successfully.", affectedRows });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.get("/api/allocation-map", async (req, res) => {
+  try {
+    const pool = await getMysqlPool();
+    if (!pool) return res.json([]);
+    const [rows] = await pool.query(`
+      SELECT location, percent
+      FROM allocation_location_map
+      ORDER BY location ASC
+    `);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+async function getAllocationMapDb() {
+  const pool = await getMysqlPool();
+  if (!pool) return [];
+  const [rows] = await pool.query("SELECT location, percent FROM allocation_location_map ORDER BY location ASC");
+  return Array.isArray(rows) ? rows : [];
+}
+
+function buildAmountMap(totalBudget, locationMapRows) {
+  const total = Number(totalBudget || 0);
+  const locations = (locationMapRows || []).filter((row) => row && row.location);
+  const weightTotal = locations.reduce((sum, row) => sum + Number(row.percent || 0), 0);
+  const amounts = {};
+  const percents = {};
+  locations.forEach((row) => {
+    const pct = Number(row.percent || 0);
+    percents[row.location] = pct;
+    amounts[row.location] = weightTotal ? (total * pct) / weightTotal : 0;
+  });
+  return { amounts, percents };
+}
+
+app.get("/api/allocation-matrix", async (req, res) => {
+  try {
+    const pool = await getMysqlPool();
+    if (!pool) return res.json([]);
+    const [rows] = await pool.query(`
+      SELECT *
+      FROM allocation_matrix
+      ORDER BY updated_at DESC
+    `);
+    return res.json(rows);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.post("/api/allocation-matrix", async (req, res) => {
+  try {
+    const pool = await getMysqlPool();
+    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
+
+    const body = req.body || {};
+    const financialYear = sanitize(body.financialYear || body.financial_year || body["Financial Year"]);
+    const coding = sanitize(body.coding || body.Coding);
+    const item = sanitize(body.item || body.Item);
+    const owner = sanitize(body.owner || body.Owner);
+    const costDistribution = sanitize(body.costDistribution || body.cost_distribution || body.mode || "Distributed") || "Distributed";
+    const totalBudget = Number(body.totalBudget || body.total_budget || body.targetAmount || 0);
+
+    if (!financialYear || !coding || !owner) {
+      return res.status(400).json({ message: "Missing financialYear/coding/owner." });
+    }
+
+    const mapRows = await getAllocationMapDb();
+    const built = buildAmountMap(totalBudget, mapRows);
+    const sql = `
+      INSERT INTO allocation_matrix (
+        financial_year,
+        coding,
+        item,
+        owner,
+        total_budget,
+        cost_distribution,
+        location_amounts_json,
+        location_percents_json,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE
+        item = VALUES(item),
+        total_budget = VALUES(total_budget),
+        cost_distribution = VALUES(cost_distribution),
+        location_amounts_json = VALUES(location_amounts_json),
+        location_percents_json = VALUES(location_percents_json),
+        updated_at = NOW()
+    `;
+
+    await pool.execute(sql, [
+      financialYear,
+      coding,
+      item,
+      owner,
+      totalBudget,
+      costDistribution,
+      JSON.stringify(built.amounts || {}),
+      JSON.stringify(built.percents || {})
+    ]);
+
+    const [rows] = await pool.execute(
+      "SELECT * FROM allocation_matrix WHERE financial_year = ? AND coding = ? AND owner = ? AND cost_distribution = ? LIMIT 1",
+      [financialYear, coding, owner, costDistribution]
+    );
+    return res.status(200).json(rows && rows[0] ? rows[0] : { message: "Saved." });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/allocation-matrix/:id", async (req, res) => {
+  try {
+    const pool = await getMysqlPool();
+    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: "Invalid id." });
+    const [result] = await pool.execute("DELETE FROM allocation_matrix WHERE id = ?", [id]);
+    const affectedRows = result.affectedRows || 0;
+    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    return res.status(200).json({ message: "Deleted successfully.", affectedRows });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 // HEALTH CHECK
 app.get("/api/health", async (req, res) => {
   try {

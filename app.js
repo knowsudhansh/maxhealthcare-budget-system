@@ -4,7 +4,6 @@
   const state = data.state || {};
   const h = data.helpers || {};
   const ALLOCATION_DB_KEY = "it_opex_allocation_db_v1";
-  const ALLOCATION_MATRIX_EDITS_KEY = "it_opex_allocation_matrix_edits_v1";
   const API_BASE = "https://maxhealthcare-budget-system-production.up.railway.app";
   const LIVE_SYNC_INTERVAL_MS = 15000;
 
@@ -187,16 +186,6 @@
     }
   }
 
-  function loadAllocationMatrixEdits() {
-    try {
-      const raw = localStorage.getItem(ALLOCATION_MATRIX_EDITS_KEY);
-      const parsed = raw ? JSON.parse(raw) : {};
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-      return parsed;
-    } catch (_error) {
-      return {};
-    }
-  }
 
   function saveAllocationDb() {
     try {
@@ -206,13 +195,109 @@
     }
   }
 
-  function saveAllocationMatrixEdits() {
+  async function loadAllocationDbFromServer() {
     try {
-      localStorage.setItem(ALLOCATION_MATRIX_EDITS_KEY, JSON.stringify(state.allocationMatrixEdits || {}));
-    } catch (_error) {
-      // Ignore local storage errors.
+      const response = await fetch(`${API_BASE}/api/allocation-data`);
+      if (!response.ok) throw new Error(`Allocation load failed (${response.status})`);
+      const rows = await response.json();
+      state.allocationDb = (Array.isArray(rows) ? rows : []).map((row) => ({
+        id: String(row.id || ""),
+        coding: row.coding || "",
+        owner: row.owner || "",
+        financialYear: row.financial_year || row.financialYear || "",
+        mode: row.mode || "Distributed",
+        amountInput: row.amount_input == null ? "" : row.amount_input,
+        percentInput: row.percent_input == null ? "" : row.percent_input,
+        targetAmount: Number(row.target_amount || 0),
+        savedAt: row.updated_at || row.savedAt || ""
+      }));
+      saveAllocationDb();
+    } catch (error) {
+      console.error("Allocation DB sync failed:", error);
     }
   }
+
+  async function upsertAllocationDbToServer(entries) {
+    const list = Array.isArray(entries) ? entries : [];
+    if (!list.length) return;
+    await Promise.all(
+      list.map(async (entry) => {
+        const payload = {
+          coding: entry.coding || "",
+          owner: entry.owner || "",
+          financialYear: entry.financialYear || "",
+          mode: entry.mode || "Distributed",
+          amountInput: entry.amountInput === "" ? null : entry.amountInput,
+          percentInput: entry.percentInput === "" ? null : entry.percentInput,
+          targetAmount: Number(entry.targetAmount || 0),
+          item: entry.item || ""
+        };
+        try {
+          const response = await fetch(`${API_BASE}/api/allocation-data`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          if (!response.ok) {
+            const msg = await response.text();
+            throw new Error(`Allocation upsert failed (${response.status}): ${msg}`);
+          }
+        } catch (error) {
+          console.error("Allocation upsert failed:", error);
+        }
+      })
+    );
+  }
+
+  async function loadAllocationMatrixFromServer() {
+    try {
+      const response = await fetch(`${API_BASE}/api/allocation-matrix`);
+      if (!response.ok) throw new Error(`Allocation matrix load failed (${response.status})`);
+      const rows = await response.json();
+      state.allocationMatrixRows = (Array.isArray(rows) ? rows : []).map((row) => ({
+        id: String(row.id || ""),
+        financialYear: row.financial_year || row.financialYear || "",
+        coding: row.coding || "",
+        item: row.item || "",
+        owner: row.owner || "",
+        costDistribution: row.cost_distribution || row.costDistribution || row.mode || "Distributed",
+        totalBudget: Number(row.total_budget || row.totalBudget || 0),
+        locationAmounts: (() => {
+          try {
+            const value = row.location_amounts_json || row.locationAmounts || {};
+            return typeof value === "string" ? JSON.parse(value) : value || {};
+          } catch (_e) {
+            return {};
+          }
+        })(),
+        locationPercents: (() => {
+          try {
+            const value = row.location_percents_json || row.locationPercents || {};
+            return typeof value === "string" ? JSON.parse(value) : value || {};
+          } catch (_e) {
+            return {};
+          }
+        })()
+      }));
+      render();
+    } catch (error) {
+      console.error("Allocation matrix sync failed:", error);
+    }
+  }
+
+  async function saveAllocationMatrixRowToServer(payload) {
+    const response = await fetch(`${API_BASE}/api/allocation-matrix`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload || {})
+    });
+    if (!response.ok) {
+      const msg = await response.text();
+      throw new Error(`Allocation matrix save failed (${response.status}): ${msg}`);
+    }
+    return response.json();
+  }
+
 
   function clearAllocationModalState() {
     state.allocationEditModal = null;
@@ -334,6 +419,52 @@
       .sort((left, right) => new Date(right.savedAt || 0).getTime() - new Date(left.savedAt || 0).getTime())[0];
   }
 
+  function findCurrentPlannerRecord(form) {
+    const codingKey = normalizeText(form && form.coding);
+    const locationKey = normalizeText(form && form.location);
+    const yearKey = String(form && form.financialYear || "");
+    if (!codingKey || !locationKey || !yearKey) return null;
+
+    const ownerKey = normalizeText(form && form.owner);
+    const records = Array.isArray(state.records) ? state.records : [];
+    const matches = records.filter((record) => {
+      if (normalizeText(record.coding) !== codingKey) return false;
+      if (normalizeText(record.location) !== locationKey) return false;
+      if (String(record.financialYear || "") !== yearKey) return false;
+      if (ownerKey && normalizeText(record.owner) !== ownerKey) return false;
+      return true;
+    });
+    if (!matches.length) return null;
+    return matches.slice().sort((l, r) => new Date(r.savedAt || 0).getTime() - new Date(l.savedAt || 0).getTime())[0];
+  }
+
+  function syncPlannerExpenseContext() {
+    const form = { ...(state.form || {}) };
+    if (form.entryType !== "Expense") return;
+    if (!(form.coding && form.financialYear && form.location)) return;
+
+    const currentRecord = findCurrentPlannerRecord(form);
+    if (!currentRecord) {
+      // No budget row exists for this FY/location/coding yet; keep user in expense mode but don't create duplicates silently.
+      state.editId = "";
+      return;
+    }
+
+    state.editId = currentRecord.id || state.editId;
+    form.locFyCurrent =
+      currentRecord.locFyCurrent !== undefined && currentRecord.locFyCurrent !== null && currentRecord.locFyCurrent !== ""
+        ? String(currentRecord.locFyCurrent)
+        : "";
+    form.locLe =
+      currentRecord.locLe !== undefined && currentRecord.locLe !== null && currentRecord.locLe !== ""
+        ? String(currentRecord.locLe)
+        : (form.locLe || "");
+
+    state.form = form;
+    // Re-sync last year budget, but do not auto-fill LE from previous year.
+    syncPlannerHistoricalValues("financialYear");
+  }
+
   function syncPlannerHistoricalValues(changedKey) {
     const form = { ...(state.form || {}) };
     const dependencyKeys = new Set(["coding", "financialYear", "location", "newCategory", "cate3", "cate4", "subCategory"]);
@@ -358,7 +489,7 @@
     const previousRecord = findPreviousPlannerRecord(form);
     if (!previousRecord) {
       form.locFyLast = "";
-      form.locLe = "";
+      if (form.entryType !== "Expense") form.locLe = "";
       form.locPercent = "0.00";
       state.form = form;
       return;
@@ -368,10 +499,12 @@
       previousRecord.locFyCurrent !== undefined && previousRecord.locFyCurrent !== null && previousRecord.locFyCurrent !== ""
         ? String(previousRecord.locFyCurrent)
         : "";
-    form.locLe =
-      previousRecord.locLe !== undefined && previousRecord.locLe !== null && previousRecord.locLe !== ""
-        ? String(previousRecord.locLe)
-        : form.locFyLast;
+    if (form.entryType !== "Expense") {
+      form.locLe =
+        previousRecord.locLe !== undefined && previousRecord.locLe !== null && previousRecord.locLe !== ""
+          ? String(previousRecord.locLe)
+          : form.locFyLast;
+    }
 
     state.form = form;
   }
@@ -422,6 +555,11 @@
     const payload = payloadFromRecord(record);
     const numericId = Number(record.id || state.editId);
     const canUpdate = Number.isFinite(numericId) && numericId > 0;
+
+    if (record.entryType === "Expense" && !canUpdate) {
+      alert("Expense entry needs an existing Budget Taken row for the same Financial Year + MAX Hospital + Coding. Please add the budget first.");
+      return;
+    }
 
     const url = canUpdate ? `${API_BASE}/api/budget-data/${numericId}` : `${API_BASE}/api/budget-submissions`;
     const method = canUpdate ? "PUT" : "POST";
@@ -670,6 +808,17 @@ function editRecord(id) {
     }
 
     state.form[key] = value;
+    if (key === "entryType") {
+      if (!state.form.entryType) state.form.entryType = "Budget Taken";
+      if (state.form.entryType !== "Expense") {
+        // Leaving expense mode stops editing an existing row unless user explicitly edits.
+        state.editId = "";
+      } else {
+        syncPlannerExpenseContext();
+      }
+      syncPlannerHistoricalValues(key);
+      return;
+    }
     if (key === "item") {
       const matchedCoding = findPlannerCodingByItemMatch(value);
       if (matchedCoding && normalizeText(matchedCoding) !== normalizeText(state.form.coding)) {
@@ -680,6 +829,9 @@ function editRecord(id) {
       }
     }
     syncPlannerHistoricalValues(key);
+    if (state.form && state.form.entryType === "Expense" && (key === "coding" || key === "financialYear" || key === "location" || key === "owner")) {
+      syncPlannerExpenseContext();
+    }
   }
 
   function setDashboardFilter(key, value) {
@@ -855,6 +1007,8 @@ function render() {
       }
       state.allocationEditModal = {
         rowKey,
+        matrixId: String(actionButton.getAttribute("data-matrix-id") || ""),
+        financialYear: String(actionButton.getAttribute("data-year") || ""),
         coding: String(actionButton.getAttribute("data-coding") || ""),
         item: String(actionButton.getAttribute("data-item") || ""),
         owner: String(actionButton.getAttribute("data-owner") || "")
@@ -867,6 +1021,7 @@ function render() {
     }
     if (action === "allocation-row-delete") {
       const rowKey = String(actionButton.getAttribute("data-row-key") || "");
+      const matrixId = String(actionButton.getAttribute("data-matrix-id") || "");
       const coding = String(actionButton.getAttribute("data-coding") || "");
       const item = String(actionButton.getAttribute("data-item") || "");
       const owner = String(actionButton.getAttribute("data-owner") || "");
@@ -883,23 +1038,11 @@ function render() {
         return;
       }
 
-      state.allocationDb = (state.allocationDb || []).filter(
-        (entry) =>
-          !(
-            normalizeText(entry.coding) === codingKey &&
-            normalizeText(entry.owner) === ownerKey &&
-            String(entry.financialYear || entry.year || "") === financialYear
-          )
-      );
-      saveAllocationDb();
-
-      if (!state.allocationMatrixEdits || typeof state.allocationMatrixEdits !== "object") {
-        state.allocationMatrixEdits = {};
+      if (matrixId) {
+        fetch(`${API_BASE}/api/allocation-matrix/${Number(matrixId)}`, { method: "DELETE" })
+          .then(() => loadAllocationMatrixFromServer())
+          .catch((error) => console.error("Allocation matrix delete failed:", error));
       }
-      Object.keys(state.allocationMatrixEdits).forEach((key) => {
-        if (String(key).startsWith(`${rowKey}||`)) delete state.allocationMatrixEdits[key];
-      });
-      saveAllocationMatrixEdits();
 
       if (state.allocationEditModal && state.allocationEditModal.rowKey === rowKey) {
         clearAllocationModalState();
@@ -921,26 +1064,23 @@ function render() {
 
       const draft = state.allocationEditDraft || {};
       const base = state.allocationEditBase || {};
-      if (!state.allocationMatrixEdits || typeof state.allocationMatrixEdits !== "object") {
-        state.allocationMatrixEdits = {};
-      }
-
-      Object.keys(state.allocationMatrixEdits).forEach((key) => {
-        if (String(key).startsWith(`${rowKey}||`)) delete state.allocationMatrixEdits[key];
-      });
-
-      Object.keys(base).forEach((location) => {
+      const totalBudget = Object.keys(base).reduce((sum, location) => {
         const baseValue = Math.max(0, num(base[location]));
-        const draftValue = Math.max(
-          0,
-          Number.isFinite(Number(draft[location])) ? Number(draft[location]) : baseValue
-        );
-        if (allocationRoundedValue(draftValue) !== allocationRoundedValue(baseValue)) {
-          const editKey = `${rowKey}||${normalizeText(location)}`;
-          state.allocationMatrixEdits[editKey] = allocationRoundedValue(draftValue);
-        }
-      });
-      saveAllocationMatrixEdits();
+        const draftValue = Math.max(0, Number.isFinite(Number(draft[location])) ? Number(draft[location]) : baseValue);
+        return sum + draftValue;
+      }, 0);
+
+      // Source of truth is Railway; editing updates the total budget and re-applies location map.
+      saveAllocationMatrixRowToServer({
+        financialYear: String(modal.financialYear || ""),
+        coding: String(modal.coding || ""),
+        item: String(modal.item || ""),
+        owner: String(modal.owner || ""),
+        totalBudget,
+        costDistribution: "Distributed"
+      })
+        .then(() => loadAllocationMatrixFromServer())
+        .catch((error) => console.error("Allocation matrix update failed:", error));
       clearAllocationModalState();
       render();
       return;
@@ -1009,10 +1149,23 @@ function render() {
             targetAmount,
             savedAt: new Date().toISOString()
           };
+
+          // Persist one full allocation-matrix row per coding/owner/year to Railway.
+          saveAllocationMatrixRowToServer({
+            financialYear,
+            coding: item.code,
+            item: state.allocationControls.item || "",
+            owner,
+            totalBudget: targetAmount,
+            costDistribution: "Distributed"
+          })
+            .then(() => loadAllocationMatrixFromServer())
+            .catch((error) => console.error("Allocation matrix save failed:", error));
         });
 
         state.allocationDb = Object.values(dbMap);
         saveAllocationDb();
+        upsertAllocationDbToServer(state.allocationDb).catch((error) => console.error("Allocation server sync failed:", error));
         state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${batchTotal.toLocaleString(
           "en-IN",
           { maximumFractionDigits: 2 }
@@ -1244,46 +1397,7 @@ function render() {
       return;
     }
 
-    if (target.classList.contains("allocation-matrix-input") && "value" in target) {
-      const rowKey = String(target.getAttribute("data-row-key") || "");
-      const location = String(target.getAttribute("data-location") || "");
-      if (!rowKey || !location) return;
-
-      if (!state.allocationMatrixEdits || typeof state.allocationMatrixEdits !== "object") {
-        state.allocationMatrixEdits = {};
-      }
-
-      const editKey = `${rowKey}||${normalizeText(location)}`;
-      const baseValue = num(target.getAttribute("data-base-value"));
-      const typedValue = Number(target.value);
-      const nextValue = Number.isFinite(typedValue) ? Math.max(0, typedValue) : 0;
-      const changed = allocationRoundedValue(nextValue) !== allocationRoundedValue(baseValue);
-
-      if (changed) state.allocationMatrixEdits[editKey] = allocationRoundedValue(nextValue);
-      else delete state.allocationMatrixEdits[editKey];
-      saveAllocationMatrixEdits();
-
-      const cell = target.closest("td");
-      target.classList.toggle("is-edited", changed);
-      if (cell) cell.classList.toggle("allocation-cell-edited", changed);
-
-      const row = target.closest("tr");
-      if (row) {
-        const inputs = Array.from(row.querySelectorAll(".allocation-matrix-input"));
-        const rowTotal = inputs.reduce((sum, input) => {
-          const value = Number(input.value);
-          return sum + (Number.isFinite(value) ? Math.max(0, value) : 0);
-        }, 0);
-        const totalCell = row.querySelector("[data-role='allocation-row-total']");
-        if (totalCell) {
-          totalCell.textContent = rowTotal.toLocaleString("en-IN", {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 2
-          });
-        }
-      }
-      return;
-    }
+    // Allocation Matrix inline edits are disabled; Railway is the source of truth.
 
     if (target.id === "allocation-amount" && "value" in target) {
       setAllocationControl("amount", target.value);
@@ -1394,9 +1508,7 @@ function render() {
   if (!Array.isArray(state.allocationDb)) {
     state.allocationDb = loadAllocationDb();
   }
-  if (!state.allocationMatrixEdits || typeof state.allocationMatrixEdits !== "object") {
-    state.allocationMatrixEdits = loadAllocationMatrixEdits();
-  }
+  // Allocation matrix source of truth is Railway; do not load local matrix edits.
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
 async function loadLiveBudgetData(logStatus) {
@@ -1447,11 +1559,19 @@ console.log("Live DB connected ✅");
   }
 }
 
-loadLiveBudgetData(true);
-window.setInterval(() => {
-  loadLiveBudgetData(false);
-}, LIVE_SYNC_INTERVAL_MS);
-render();
+  loadLiveBudgetData(true);
+  window.setInterval(() => {
+    loadLiveBudgetData(false);
+  }, LIVE_SYNC_INTERVAL_MS);
+  loadAllocationDbFromServer();
+  window.setInterval(() => {
+    loadAllocationDbFromServer();
+  }, LIVE_SYNC_INTERVAL_MS);
+  loadAllocationMatrixFromServer();
+  window.setInterval(() => {
+    loadAllocationMatrixFromServer();
+  }, LIVE_SYNC_INTERVAL_MS);
+  render();
 
 window.addEventListener("error", (e) => {
   console.error("Global JS Error:", e.error);
