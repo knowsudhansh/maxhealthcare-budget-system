@@ -137,7 +137,6 @@ async function getMysqlPool() {
 
   return mysqlPool;
 }
-
 async function insertBudgetSubmissionDb(row) {
   const pool = await getMysqlPool();
 
@@ -156,9 +155,20 @@ async function insertBudgetSubmissionDb(row) {
       cate4,
       owner1,
       owner,
-      cost_center_department
+      cost_center_department,
+      financial_year,
+      location,
+      loc_fy_current,
+      loc_le,
+      new_amc,
+      new_project,
+      annualized,
+      price_increase,
+      new_unit,
+      license_increase,
+      rest
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
@@ -173,7 +183,18 @@ async function insertBudgetSubmissionDb(row) {
     row["Cate.4"] || null,
     row["Owner1"] || null,
     row["Owner"] || null,
-    row["Cost Center / Department"] || null
+    row["Cost Center / Department"] || null,
+    row["Financial Year"] || null,
+    row["Location"] || null,
+    row["loc_fy_current"] || 0,
+    row["loc_le"] || 0,
+    row["new_amc"] || 0,
+    row["new_project"] || 0,
+    row["annualized"] || 0,
+    row["price_increase"] || 0,
+    row["new_unit"] || 0,
+    row["license_increase"] || 0,
+    row["rest"] || 0
   ];
 
   const [result] = await pool.execute(sql, params);
