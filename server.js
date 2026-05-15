@@ -94,25 +94,39 @@ function hasGoogleCredentials() {
   return hasEnvGoogleCreds || hasFileGoogleCreds;
 }
 
-function normalizeSubmission(body = {}) {
+function normalizeSubmission(body) {
   return {
-    "Submitted At":
-      sanitize(body["Submitted At"]) ||
-      new Date().toLocaleString(),
+    "Submitted At": body["Submitted At"] || "",
 
-    Coding: sanitize(body["Coding"]),
-    Item: sanitize(body["Item"]),
-    Category_IT: sanitize(body["Category_IT"]),
-    "Sub Category": sanitize(body["Sub Category"]),
-    "New Category": sanitize(body["New Category"]),
-    "App Cate.": sanitize(body["App Cate."]),
-    "Cate.3": sanitize(body["Cate.3"]),
-    "Cate.4": sanitize(body["Cate.4"]),
-    Owner1: sanitize(body["Owner1"]),
-    Owner: sanitize(body["Owner"]),
-    "Cost Center / Department": sanitize(
-      body["Cost Center / Department"]
-    )
+    "Coding": body["Coding"] || "",
+    "Item": body["Item"] || "",
+
+    "Category_IT": body["Category_IT"] || "",
+    "Sub Category": body["Sub Category"] || "",
+    "New Category": body["New Category"] || "",
+    "App Cate.": body["App Cate."] || "",
+    "Cate.3": body["Cate.3"] || "",
+    "Cate.4": body["Cate.4"] || "",
+
+    "Owner1": body["Owner1"] || "",
+    "Owner": body["Owner"] || "",
+
+    "Cost Center / Department":
+      body["Cost Center / Department"] || "",
+
+    "Financial Year": body["Financial Year"] || "",
+    "Location": body["Location"] || "",
+
+    "loc_fy_current": Number(body["loc_fy_current"] || 0),
+    "loc_le": Number(body["loc_le"] || 0),
+
+    "new_amc": Number(body["new_amc"] || 0),
+    "new_project": Number(body["new_project"] || 0),
+    "annualized": Number(body["annualized"] || 0),
+    "price_increase": Number(body["price_increase"] || 0),
+    "new_unit": Number(body["new_unit"] || 0),
+    "license_increase": Number(body["license_increase"] || 0),
+    "rest": Number(body["rest"] || 0)
   };
 }
 
