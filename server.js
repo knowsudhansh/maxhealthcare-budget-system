@@ -118,6 +118,7 @@ function normalizeSubmission(body) {
     "Location": body["Location"] || "",
 
     "loc_fy_current": Number(body["loc_fy_current"] || 0),
+    "loc_fy_last": Number(body["loc_fy_last"] || 0),
     "loc_le": Number(body["loc_le"] || 0),
 
     "new_amc": Number(body["new_amc"] || 0),
@@ -173,6 +174,7 @@ async function insertBudgetSubmissionDb(row) {
       financial_year,
       location,
       loc_fy_current,
+      loc_fy_last,
       loc_le,
       new_amc,
       new_project,
@@ -182,7 +184,7 @@ async function insertBudgetSubmissionDb(row) {
       license_increase,
       rest
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
@@ -201,6 +203,7 @@ async function insertBudgetSubmissionDb(row) {
     row["Financial Year"] || null,
     row["Location"] || null,
     row["loc_fy_current"] || 0,
+    row["loc_fy_last"] || 0,
     row["loc_le"] || 0,
     row["new_amc"] || 0,
     row["new_project"] || 0,
@@ -237,6 +240,7 @@ async function updateBudgetSubmissionDb(id, row) {
       financial_year = ?,
       location = ?,
       loc_fy_current = ?,
+      loc_fy_last = ?,
       loc_le = ?,
       new_amc = ?,
       new_project = ?,
@@ -263,6 +267,7 @@ async function updateBudgetSubmissionDb(id, row) {
     row["Financial Year"] || null,
     row["Location"] || null,
     row["loc_fy_current"] || 0,
+    row["loc_fy_last"] || 0,
     row["loc_le"] || 0,
     row["new_amc"] || 0,
     row["new_project"] || 0,
