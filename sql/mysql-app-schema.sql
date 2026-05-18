@@ -78,3 +78,29 @@ CREATE TABLE IF NOT EXISTS allocation_records (
   UNIQUE KEY uk_allocation_coding_owner (coding, owner),
   KEY idx_allocation_owner (owner)
 );
+
+CREATE TABLE IF NOT EXISTS allocation_location_map (
+  location VARCHAR(120) NOT NULL,
+  percent DECIMAL(10,4) NOT NULL DEFAULT 0.0000,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (location)
+);
+
+CREATE TABLE IF NOT EXISTS allocation_matrix (
+  id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  financial_year VARCHAR(20) NOT NULL,
+  coding VARCHAR(50) NOT NULL,
+  item VARCHAR(255) NULL,
+  owner VARCHAR(100) NOT NULL,
+  total_budget DECIMAL(18,2) NOT NULL DEFAULT 0.00,
+  cost_distribution VARCHAR(40) NOT NULL DEFAULT 'Distributed',
+  location_amounts_json JSON NULL,
+  location_percents_json JSON NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_allocation_matrix (financial_year, coding, owner, cost_distribution),
+  KEY idx_allocation_matrix_year (financial_year),
+  KEY idx_allocation_matrix_coding (coding),
+  KEY idx_allocation_matrix_owner (owner)
+);
