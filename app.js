@@ -4,10 +4,47 @@
   const state = data.state || {};
   const h = data.helpers || {};
   const ALLOCATION_DB_KEY = "it_opex_allocation_db_v1";
-  const API_BASE = "https://maxhealthcare-budget-system-production.up.railway.app";
+  const ALLOCATION_MATRIX_OVERRIDES_KEY = "it_opex_allocation_matrix_overrides_v1";
+  // API base selection:
+  // - Local dev: when running UI from localhost, default to local API server
+  // - Hosted: default to Railway
+  // You can override anytime via: localStorage.setItem("API_BASE_OVERRIDE", "http://localhost:3000")
+  const API_BASE_OVERRIDE =
+    typeof localStorage !== "undefined" ? String(localStorage.getItem("API_BASE_OVERRIDE") || "") : "";
+  const IS_LOCAL_UI =
+    location.protocol === "file:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
+  const API_BASE_DEFAULT =
+    IS_LOCAL_UI
+      ? "http://localhost:3001"
+      : "https://maxhealthcare-budget-system-production.up.railway.app";
+  const API_BASE = API_BASE_OVERRIDE || API_BASE_DEFAULT;
+  try {
+    console.log("API_BASE:", API_BASE);
+  } catch (_e) {}
   const LIVE_SYNC_INTERVAL_MS = 15000;
 
   const DRIVER_KEYS = ["newAmc", "newProject", "annualized", "priceIncrease", "newUnit", "licenseIncrease", "rest"];
+  const ALLOCATION_DISTRIBUTION_MAP = {
+    Saket: 13.87,
+    "Max Smart": 5.67,
+    Gurgaon: 3.59,
+    "Lajpat Nagar": 0.36,
+    Panchsheel: 1.42,
+    Patparganj: 8.03,
+    Vaishali: 7.56,
+    Noida: 0.47,
+    "Shalimar Bagh": 6.44,
+    Mohali: 4.53,
+    Dehradun: 3.5,
+    Bathinda: 1.91,
+    HO: 3.4,
+    BLK: 11.28,
+    Nanawati: 6.19,
+    Nagpur: 4.72,
+    Lucknow: 5.2,
+    Dwarka: 5.2,
+    "Jaypee Noida": 6.67
+  };
 
   function normalizeText(value) {
     return h.normalizeText ? h.normalizeText(value) : String(value || "").trim().toUpperCase();
@@ -45,6 +82,74 @@
 
   function unique(values) {
     return Array.from(new Set((values || []).filter(Boolean)));
+  }
+
+  function getKnownLocations() {
+    const fromData = Array.isArray(data.ALL_LOCATIONS)
+      ? data.ALL_LOCATIONS
+      : Array.isArray(data.LOCATIONS)
+      ? data.LOCATIONS
+      : [];
+    const fromRecords = (state.records || []).map((record) => record && record.location);
+    const fromMatrix = (state.allocationMatrixRows || []).flatMap((row) => {
+      const amounts = row && row.locationAmounts && typeof row.locationAmounts === "object" ? Object.keys(row.locationAmounts) : [];
+      const percents = row && row.locationPercents && typeof row.locationPercents === "object" ? Object.keys(row.locationPercents) : [];
+      return amounts.concat(percents);
+    });
+    return unique([].concat(fromData, Object.keys(ALLOCATION_DISTRIBUTION_MAP), fromRecords, fromMatrix));
+  }
+
+  function parseJsonObject(value) {
+    if (!value) return {};
+    if (typeof value === "object") return value || {};
+    if (typeof value !== "string") return {};
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function normalizeAmountMap(map) {
+    const cleaned = {};
+    Object.keys(map || {}).forEach((location) => {
+      if (!location) return;
+      cleaned[location] = Math.max(0, num(map[location]));
+    });
+    return cleaned;
+  }
+
+  function sumAmountMap(map) {
+    return Object.keys(map || {}).reduce((sum, key) => sum + num(map[key]), 0);
+  }
+
+  function queryString(params) {
+    const search = new URLSearchParams();
+    Object.keys(params || {}).forEach((key) => {
+      const value = params[key];
+      if (value == null || value === "") return;
+      search.set(key, String(value));
+    });
+    return search.toString();
+  }
+
+  function buildDistributedLocationAmounts(totalBudget) {
+    const total = Math.max(0, num(totalBudget));
+    const weightedLocations = getKnownLocations().filter(
+      (location) =>
+        Object.prototype.hasOwnProperty.call(ALLOCATION_DISTRIBUTION_MAP, location) &&
+        num(ALLOCATION_DISTRIBUTION_MAP[location]) > 0
+    );
+    const weightTotal = weightedLocations.reduce((sum, location) => sum + num(ALLOCATION_DISTRIBUTION_MAP[location]), 0);
+    const amounts = {};
+    const percents = {};
+    weightedLocations.forEach((location) => {
+      const pct = num(ALLOCATION_DISTRIBUTION_MAP[location]);
+      percents[location] = pct;
+      amounts[location] = weightTotal ? (total * pct) / weightTotal : 0;
+    });
+    return { amounts, percents };
   }
 
   function getPlannerCodingOptions() {
@@ -195,6 +300,183 @@
     }
   }
 
+  function allocationMatrixOverrideKey(input) {
+    const row = input || {};
+    return [
+      String(row.financialYear || row.financial_year || ""),
+      normalizeText(row.coding || ""),
+      normalizeText(row.owner || ""),
+      normalizeText(row.costDistribution || row.cost_distribution || "Distributed")
+    ].join("||");
+  }
+
+  function loadAllocationMatrixOverrides() {
+    try {
+      const raw = localStorage.getItem(ALLOCATION_MATRIX_OVERRIDES_KEY);
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch (_error) {
+      return {};
+    }
+  }
+
+  function saveAllocationMatrixOverrides() {
+    try {
+      localStorage.setItem(ALLOCATION_MATRIX_OVERRIDES_KEY, JSON.stringify(state.allocationMatrixOverrides || {}));
+    } catch (_error) {
+      // Ignore local storage errors.
+    }
+  }
+
+  function upsertAllocationMatrixOverride(row) {
+    if (!state.allocationMatrixOverrides || typeof state.allocationMatrixOverrides !== "object") {
+      state.allocationMatrixOverrides = loadAllocationMatrixOverrides();
+    }
+    const key = allocationMatrixOverrideKey(row);
+    if (!key) return;
+    state.allocationMatrixOverrides[key] = {
+      financialYear: String(row.financialYear || ""),
+      coding: String(row.coding || ""),
+      item: String(row.item || ""),
+      owner: String(row.owner || ""),
+      costDistribution: String(row.costDistribution || "Distributed"),
+      totalBudget: num(row.totalBudget || 0),
+      locationAmounts: normalizeAmountMap(row.locationAmounts || {}),
+      locationPercents: parseJsonObject(row.locationPercents || {}),
+      editedLocations: Array.isArray(row.editedLocations) ? row.editedLocations : []
+    };
+    saveAllocationMatrixOverrides();
+  }
+
+  function removeAllocationMatrixOverride(row) {
+    if (!state.allocationMatrixOverrides || typeof state.allocationMatrixOverrides !== "object") {
+      state.allocationMatrixOverrides = loadAllocationMatrixOverrides();
+    }
+    const key = allocationMatrixOverrideKey(row);
+    if (key && Object.prototype.hasOwnProperty.call(state.allocationMatrixOverrides, key)) {
+      delete state.allocationMatrixOverrides[key];
+      saveAllocationMatrixOverrides();
+    }
+  }
+
+  function applyAllocationMatrixOverrides(rows) {
+    const overrides = state.allocationMatrixOverrides || {};
+    if (!overrides || !Object.keys(overrides).length) return rows;
+    return (rows || []).map((row) => {
+      const key = allocationMatrixOverrideKey(row);
+      const override = overrides[key];
+      if (!override) return row;
+      const overrideAmounts = normalizeAmountMap(override.locationAmounts || {});
+      if (!sumAmountMap(overrideAmounts)) return row;
+      return Object.assign({}, row, {
+        item: override.item || row.item || "",
+        totalBudget: sumAmountMap(overrideAmounts),
+        locationAmounts: overrideAmounts,
+        locationPercents: parseJsonObject(override.locationPercents || row.locationPercents || {}),
+        editedLocations: Array.isArray(override.editedLocations) ? override.editedLocations : []
+      });
+    });
+  }
+
+  function mergeAllocationMatrixRows(baseRows, overlayRows) {
+    const merged = [];
+    const indexByKey = {};
+    (Array.isArray(baseRows) ? baseRows : []).forEach((row) => {
+      const key = allocationMatrixOverrideKey(row);
+      if (!key) return;
+      indexByKey[key] = merged.length;
+      merged.push(row);
+    });
+    (Array.isArray(overlayRows) ? overlayRows : []).forEach((row) => {
+      const key = allocationMatrixOverrideKey(row);
+      if (!key) return;
+      const normalized = {
+        id: String(row.id || ""),
+        financialYear: String(row.financialYear || ""),
+        coding: String(row.coding || ""),
+        item: String(row.item || ""),
+        owner: String(row.owner || ""),
+        costDistribution: String(row.costDistribution || "Distributed"),
+        totalBudget: num(row.totalBudget || 0),
+        locationAmounts: normalizeAmountMap(row.locationAmounts || {}),
+        locationPercents: parseJsonObject(row.locationPercents || {}),
+        editedLocations: Array.isArray(row.editedLocations) ? row.editedLocations : []
+      };
+      if (Object.prototype.hasOwnProperty.call(indexByKey, key)) {
+        const existingIndex = indexByKey[key];
+        merged[existingIndex] = Object.assign({}, merged[existingIndex], normalized, {
+          id: normalized.id || merged[existingIndex].id || ""
+        });
+      } else {
+        indexByKey[key] = merged.length;
+        merged.push(normalized);
+      }
+    });
+    return merged;
+  }
+
+  function upsertLocalAllocationMatrixRow(row) {
+    const normalized = {
+      id: String(row.id || ""),
+      financialYear: String(row.financialYear || ""),
+      coding: String(row.coding || ""),
+      item: String(row.item || ""),
+      owner: String(row.owner || ""),
+      costDistribution: String(row.costDistribution || "Distributed"),
+      totalBudget: num(row.totalBudget || 0),
+      locationAmounts: normalizeAmountMap(row.locationAmounts || {}),
+      locationPercents: parseJsonObject(row.locationPercents || {}),
+      editedLocations: Array.isArray(row.editedLocations) ? row.editedLocations : []
+    };
+    const rows = Array.isArray(state.allocationMatrixLocalRows) ? state.allocationMatrixLocalRows.slice() : [];
+    const key = allocationMatrixOverrideKey(normalized);
+    const index = rows.findIndex((existing) => allocationMatrixOverrideKey(existing) === key);
+    if (index >= 0) rows[index] = Object.assign({}, rows[index], normalized);
+    else rows.unshift(normalized);
+    state.allocationMatrixLocalRows = rows;
+    state.allocationMatrixRows = mergeAllocationMatrixRows(state.allocationMatrixServerRows || state.allocationMatrixRows || [], rows);
+  }
+
+  function removeLocalAllocationMatrixRow(row) {
+    const key = allocationMatrixOverrideKey(row);
+    const matrixId = String(row && row.id ? row.id : row && row.matrixId ? row.matrixId : "");
+    function keepRow(existing) {
+      if (matrixId && String(existing.id || "") === matrixId) return false;
+      return allocationMatrixOverrideKey(existing) !== key;
+    }
+    state.allocationMatrixLocalRows = (Array.isArray(state.allocationMatrixLocalRows) ? state.allocationMatrixLocalRows : []).filter(keepRow);
+    state.allocationMatrixServerRows = (Array.isArray(state.allocationMatrixServerRows) ? state.allocationMatrixServerRows : []).filter(keepRow);
+    state.allocationMatrixRows = (Array.isArray(state.allocationMatrixRows) ? state.allocationMatrixRows : []).filter(keepRow);
+  }
+
+  function findMatchingAllocationEntries(row) {
+    const rowYear = String(row && row.financialYear || row && row.year || "");
+    const rowCoding = normalizeText(row && row.coding);
+    const rowOwner = normalizeText(row && row.owner);
+    if (!rowYear || !rowCoding || !rowOwner) return [];
+    return (Array.isArray(state.allocationDb) ? state.allocationDb : []).filter(
+      (entry) =>
+        String(entry.financialYear || entry.year || "") === rowYear &&
+        normalizeText(entry.coding) === rowCoding &&
+        normalizeText(entry.owner) === rowOwner
+    );
+  }
+
+  function removeAllocationDbEntries(entries) {
+    const ids = new Set((entries || []).map((entry) => String(entry && entry.id || "")).filter(Boolean));
+    const keys = new Set(
+      (entries || []).map((entry) =>
+        [String(entry.financialYear || entry.year || ""), normalizeText(entry.coding), normalizeText(entry.owner)].join("||")
+      )
+    );
+    state.allocationDb = (Array.isArray(state.allocationDb) ? state.allocationDb : []).filter((entry) => {
+      const id = String(entry && entry.id || "");
+      const key = [String(entry.financialYear || entry.year || ""), normalizeText(entry.coding), normalizeText(entry.owner)].join("||");
+      return !(ids.has(id) || keys.has(key));
+    });
+    saveAllocationDb();
+  }
+
   async function loadAllocationDbFromServer() {
     try {
       const response = await fetch(`${API_BASE}/api/allocation-data`);
@@ -254,31 +536,71 @@
       const response = await fetch(`${API_BASE}/api/allocation-matrix`);
       if (!response.ok) throw new Error(`Allocation matrix load failed (${response.status})`);
       const rows = await response.json();
-      state.allocationMatrixRows = (Array.isArray(rows) ? rows : []).map((row) => ({
-        id: String(row.id || ""),
-        financialYear: row.financial_year || row.financialYear || "",
-        coding: row.coding || "",
-        item: row.item || "",
-        owner: row.owner || "",
-        costDistribution: row.cost_distribution || row.costDistribution || row.mode || "Distributed",
-        totalBudget: Number(row.total_budget || row.totalBudget || 0),
-        locationAmounts: (() => {
+      const mappedRows = (Array.isArray(rows) ? rows : []).map((row) => {
+        const locationAmounts = (() => {
           try {
-            const value = row.location_amounts_json || row.locationAmounts || {};
-            return typeof value === "string" ? JSON.parse(value) : value || {};
+            const value = row.location_amounts_json || row.locationAmounts || null;
+            const parsed = normalizeAmountMap(parseJsonObject(value));
+            if (Object.keys(parsed).length) return parsed;
+
+            // Wide-table fallback (allocation_matrix_wide).
+            const wide = {
+              Saket: row.amt_saket,
+              "Max Smart": row.amt_max_smart,
+              Gurgaon: row.amt_gurgaon,
+              "Lajpat Nagar": row.amt_lajpat_nagar,
+              Panchsheel: row.amt_panchsheel,
+              Patparganj: row.amt_patparganj,
+              Vaishali: row.amt_vaishali,
+              Noida: row.amt_noida,
+              "Shalimar Bagh": row.amt_shalimar_bagh,
+              Mohali: row.amt_mohali,
+              Dehradun: row.amt_dehradun,
+              Bathinda: row.amt_bathinda,
+              HO: row.amt_ho,
+              BLK: row.amt_blk,
+              Nanawati: row.amt_nanawati,
+              Nagpur: row.amt_nagpur,
+              Lucknow: row.amt_lucknow,
+              Dwarka: row.amt_dwarka,
+              "Jaypee Noida": row.amt_jaypee_noida
+            };
+            const hasAny = Object.keys(wide).some((k) => Number(wide[k] || 0) !== 0);
+            if (!hasAny) return {};
+            const cleaned = {};
+            Object.keys(wide).forEach((k) => {
+              cleaned[k] = Number(wide[k] || 0);
+            });
+            return cleaned;
           } catch (_e) {
             return {};
           }
-        })(),
-        locationPercents: (() => {
+        })();
+        const locationPercents = (() => {
           try {
-            const value = row.location_percents_json || row.locationPercents || {};
-            return typeof value === "string" ? JSON.parse(value) : value || {};
+            const value = row.location_percents_json || row.locationPercents || null;
+            return parseJsonObject(value);
           } catch (_e) {
             return {};
           }
-        })()
-      }));
+        })();
+        const dbTotal = Number(row.total_budget || row.totalBudget || 0);
+        const amountTotal = sumAmountMap(locationAmounts);
+        return {
+          id: String(row.id || ""),
+          financialYear: row.financial_year || row.financialYear || "",
+          coding: row.coding || "",
+          item: row.item || "",
+          owner: row.owner || "",
+          costDistribution: row.cost_distribution || row.costDistribution || row.mode || "Distributed",
+          totalBudget: dbTotal > 0 || !amountTotal ? dbTotal : amountTotal,
+          locationAmounts,
+          locationPercents
+        };
+      });
+      const rowsWithOverrides = applyAllocationMatrixOverrides(mappedRows);
+      state.allocationMatrixServerRows = rowsWithOverrides;
+      state.allocationMatrixRows = mergeAllocationMatrixRows(rowsWithOverrides, state.allocationMatrixLocalRows || []);
       render();
     } catch (error) {
       console.error("Allocation matrix sync failed:", error);
@@ -524,6 +846,7 @@
       "Submitted At": new Date().toISOString(),
       Coding: record.coding || "",
       Item: record.item || "",
+      "Sub Category (Mapped)": record.subCategoryMapped || "",
       Category_IT: record.categoryIt || "",
       "Sub Category": record.subCategory || "",
       "New Category": record.newCategory || "",
@@ -535,6 +858,7 @@
       "Cost Center / Department": record.costCenter || "",
       "Financial Year": record.financialYear || "",
       Location: record.location || "",
+      "Cost Distribution": record.costDistribution || "Fixed Cost",
       loc_fy_current: Number(record.locFyCurrent || 0),
       loc_le: Number(record.locLe || 0),
       loc_fy_last: Number(record.locFyLast || 0),
@@ -544,8 +868,184 @@
       price_increase: Number(record.priceIncrease || 0),
       new_unit: Number(record.newUnit || 0),
       license_increase: Number(record.licenseIncrease || 0),
-      rest: Number(record.rest || 0)
+      rest: Number(record.rest || 0),
+      Justification: record.justification || ""
     };
+  }
+
+  const BUDGET_PLANNER_IMPORT_COLUMNS = [
+    "Financial Year",
+    "Coding",
+    "Item",
+    "Sub Category (Mapped)",
+    "Category_IT",
+    "Sub Category",
+    "New Category",
+    "App Cate.",
+    "Cate.3",
+    "Cate.4",
+    "Owner1",
+    "Owner",
+    "Cost Center / Department",
+    "MAX Hospital",
+    "Cost Distribution",
+    "Location LE",
+    "Location FY Current",
+    "Location FY Last",
+    "New AMC",
+    "New Project",
+    "Annualized",
+    "Price Increase",
+    "New Unit",
+    "License Increase",
+    "Rest",
+    "Justification"
+  ];
+
+  const BUDGET_PLANNER_REQUIRED_COLUMNS = [
+    "Financial Year",
+    "Coding",
+    "Owner",
+    "MAX Hospital",
+    "Cost Distribution",
+    "Location FY Current"
+  ];
+
+  function budgetPlannerImportKey(row) {
+    return [
+      normalizeText(row["Financial Year"]),
+      normalizeText(row.Coding),
+      normalizeText(row.Owner),
+      normalizeText(row["MAX Hospital"]),
+      normalizeText(row["Cost Distribution"] || "Fixed Cost")
+    ].join("||");
+  }
+
+  function mapBudgetPlannerImportRow(row) {
+    return {
+      "Submitted At": new Date().toISOString(),
+      Coding: row.Coding || "",
+      Item: row.Item || "",
+      "Sub Category (Mapped)": row["Sub Category (Mapped)"] || "",
+      Category_IT: row.Category_IT || "",
+      "Sub Category": row["Sub Category"] || "",
+      "New Category": row["New Category"] || "",
+      "App Cate.": row["App Cate."] || "",
+      "Cate.3": row["Cate.3"] || "",
+      "Cate.4": row["Cate.4"] || "",
+      Owner1: row.Owner1 || "",
+      Owner: row.Owner || "",
+      "Cost Center / Department": row["Cost Center / Department"] || "",
+      "Financial Year": row["Financial Year"] || "",
+      Location: row["MAX Hospital"] || row.Location || "",
+      "Cost Distribution": row["Cost Distribution"] || "Fixed Cost",
+      loc_le: num(row["Location LE"]),
+      loc_fy_current: num(row["Location FY Current"]),
+      loc_fy_last: num(row["Location FY Last"]),
+      new_amc: num(row["New AMC"]),
+      new_project: num(row["New Project"]),
+      annualized: num(row.Annualized),
+      price_increase: num(row["Price Increase"]),
+      new_unit: num(row["New Unit"]),
+      license_increase: num(row["License Increase"]),
+      rest: num(row.Rest),
+      Justification: row.Justification || ""
+    };
+  }
+
+  function readBudgetPlannerImportFile(file) {
+    return new Promise((resolve, reject) => {
+      if (typeof XLSX === "undefined") {
+        reject(new Error("Excel library is not loaded. Please refresh the page and try again."));
+        return;
+      }
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("Could not read the selected Excel file."));
+      reader.onload = () => {
+        try {
+          const workbook = XLSX.read(new Uint8Array(reader.result), { type: "array" });
+          const sheetName = workbook.SheetNames.find((name) => normalizeText(name) === "budget_planner") || workbook.SheetNames[0];
+          const sheet = workbook.Sheets[sheetName];
+          if (!sheet) throw new Error("No worksheet found in Excel file.");
+          const rows = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+          if (!rows.length) throw new Error("Budget_Planner sheet has no data rows.");
+
+          const headers = Object.keys(rows[0] || {});
+          const missingColumns = BUDGET_PLANNER_REQUIRED_COLUMNS.filter((column) => !headers.includes(column));
+          if (missingColumns.length) {
+            throw new Error(`Missing required column(s): ${missingColumns.join(", ")}`);
+          }
+
+          const seen = new Set();
+          const errors = [];
+          const mappedRows = [];
+          rows.forEach((row, index) => {
+            const rowNumber = index + 2;
+            const hasAnyValue = BUDGET_PLANNER_IMPORT_COLUMNS.some((column) => String(row[column] || "").trim());
+            if (!hasAnyValue) return;
+
+            const missing = BUDGET_PLANNER_REQUIRED_COLUMNS.filter((column) => !String(row[column] || "").trim());
+            if (missing.length) {
+              errors.push(`Row ${rowNumber}: missing ${missing.join(", ")}`);
+              return;
+            }
+
+            const key = budgetPlannerImportKey(row);
+            if (seen.has(key)) {
+              errors.push(`Row ${rowNumber}: duplicate Financial Year + Coding + Owner + MAX Hospital + Cost Distribution in this file`);
+              return;
+            }
+            seen.add(key);
+            mappedRows.push(mapBudgetPlannerImportRow(row));
+          });
+
+          if (errors.length) {
+            throw new Error(errors.slice(0, 8).join("\n"));
+          }
+          if (!mappedRows.length) throw new Error("No valid Budget_Planner rows found.");
+          resolve({ rows: mappedRows, sheetName });
+        } catch (error) {
+          reject(error);
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function importBudgetPlannerFile(file) {
+    state.plannerImportMessage = "Reading Budget_Planner Excel...";
+    render();
+    try {
+      const parsed = await readBudgetPlannerImportFile(file);
+      const proceed = window.confirm(
+        `Import ${parsed.rows.length} Budget_Planner row(s) from "${parsed.sheetName}"?\n\nExisting matching rows will be updated. New rows will be created.`
+      );
+      if (!proceed) {
+        state.plannerImportMessage = "Import cancelled.";
+        render();
+        return;
+      }
+
+      state.plannerImportMessage = `Uploading ${parsed.rows.length} Budget_Planner row(s)...`;
+      render();
+      const response = await fetch(`${API_BASE}/api/budget-planner/import`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: parsed.rows })
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.message || `Import failed (${response.status})`);
+      }
+      await loadLiveBudgetData(false);
+      const errorText = Array.isArray(result.errors) && result.errors.length ? ` ${result.errors.length} row(s) skipped.` : "";
+      state.plannerImportMessage = `Import complete: ${result.created || 0} created, ${result.updated || 0} updated.${errorText}`;
+      render();
+    } catch (error) {
+      console.error("Budget planner import failed:", error);
+      state.plannerImportMessage = `Import failed: ${error.message}`;
+      render();
+    }
   }
 
   async function saveCurrentRecord() {
@@ -996,6 +1496,11 @@ function render() {
       if (ui.exportPlannerSavedRecordsWorkbook) ui.exportPlannerSavedRecordsWorkbook();
       return;
     }
+    if (action === "planner-budget-import") {
+      const input = document.getElementById("planner-budget-upload");
+      if (input && typeof input.click === "function") input.click();
+      return;
+    }
     if (action === "allocation-row-edit") {
       const rowKey = String(actionButton.getAttribute("data-row-key") || "");
       if (!rowKey) return;
@@ -1027,9 +1532,16 @@ function render() {
       const owner = String(actionButton.getAttribute("data-owner") || "");
       const financialYear = String(actionButton.getAttribute("data-year") || "");
       const allocationType = String(actionButton.getAttribute("data-allocation-type") || "");
-      const codingKey = normalizeText(coding);
-      const ownerKey = normalizeText(owner);
       const isDistributedRow = normalizeText(allocationType) === "distributed";
+      const deleteRowRef = {
+        id: matrixId,
+        matrixId,
+        financialYear,
+        coding,
+        item,
+        owner,
+        costDistribution: "Distributed"
+      };
 
       if (!isDistributedRow) {
         state.allocationSubmitMessage =
@@ -1038,10 +1550,68 @@ function render() {
         return;
       }
 
-      if (matrixId) {
-        fetch(`${API_BASE}/api/allocation-matrix/${Number(matrixId)}`, { method: "DELETE" })
-          .then(() => loadAllocationMatrixFromServer())
-          .catch((error) => console.error("Allocation matrix delete failed:", error));
+      removeAllocationMatrixOverride(deleteRowRef);
+      removeLocalAllocationMatrixRow(deleteRowRef);
+      const allocationEntriesToDelete = findMatchingAllocationEntries(deleteRowRef);
+      removeAllocationDbEntries(allocationEntriesToDelete);
+
+      const deleteTasks = [];
+      const numericMatrixId = Number(matrixId);
+      if (Number.isFinite(numericMatrixId) && numericMatrixId > 0) {
+        deleteTasks.push(
+          fetch(`${API_BASE}/api/allocation-matrix/${encodeURIComponent(String(matrixId))}`, { method: "DELETE" })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(await res.text());
+            })
+        );
+      } else {
+        const matrixDeleteQuery = queryString({
+          financialYear,
+          coding,
+          owner,
+          costDistribution: "Distributed"
+        });
+        deleteTasks.push(
+          fetch(`${API_BASE}/api/allocation-matrix/by-key?${matrixDeleteQuery}`, { method: "DELETE" })
+            .then(async (res) => {
+              if (!res.ok && res.status !== 404) throw new Error(await res.text());
+            })
+        );
+      }
+      let hasNumericAllocationDelete = false;
+      allocationEntriesToDelete.forEach((entry) => {
+        const allocationId = Number(entry && entry.id);
+        if (!Number.isFinite(allocationId) || allocationId <= 0) return;
+        hasNumericAllocationDelete = true;
+        deleteTasks.push(
+          fetch(`${API_BASE}/api/allocation-data/${encodeURIComponent(String(entry.id))}`, { method: "DELETE" })
+            .then(async (res) => {
+              if (!res.ok) throw new Error(await res.text());
+            })
+        );
+      });
+      if (!hasNumericAllocationDelete) {
+        const allocationDeleteQuery = queryString({
+          financialYear,
+          coding,
+          owner
+        });
+        deleteTasks.push(
+          fetch(`${API_BASE}/api/allocation-data/by-key?${allocationDeleteQuery}`, { method: "DELETE" })
+            .then(async (res) => {
+              if (!res.ok && res.status !== 404) throw new Error(await res.text());
+            })
+        );
+      }
+
+      if (deleteTasks.length) {
+        Promise.all(deleteTasks)
+          .then(() => Promise.all([loadAllocationDbFromServer(), loadAllocationMatrixFromServer()]))
+          .catch((error) => {
+            console.error("Allocation delete failed:", error);
+            state.allocationSubmitMessage = "Delete partially failed. Check server connection / id.";
+            render();
+          });
       }
 
       if (state.allocationEditModal && state.allocationEditModal.rowKey === rowKey) {
@@ -1063,21 +1633,88 @@ function render() {
       if (!rowKey) return;
 
       const draft = state.allocationEditDraft || {};
-      const base = state.allocationEditBase || {};
-      const totalBudget = Object.keys(base).reduce((sum, location) => {
+      const matchingMatrixRow = (state.allocationMatrixRows || []).find((row) => {
+        const sameId = modal.matrixId && String(row.id || "") === String(modal.matrixId || "");
+        const sameKeys =
+          String(row.financialYear || "") === String(modal.financialYear || "") &&
+          normalizeText(row.coding) === normalizeText(modal.coding) &&
+          normalizeText(row.owner) === normalizeText(modal.owner);
+        return sameId || sameKeys;
+      });
+      const matchingAllocationEntry = (state.allocationDb || []).find(
+        (entry) =>
+          String(entry.financialYear || entry.year || "") === String(modal.financialYear || "") &&
+          normalizeText(entry.coding) === normalizeText(modal.coding) &&
+          normalizeText(entry.owner) === normalizeText(modal.owner)
+      );
+      const base = normalizeAmountMap(
+        Object.assign(
+          {},
+          state.allocationEditBase || {},
+          matchingMatrixRow && matchingMatrixRow.locationAmounts ? matchingMatrixRow.locationAmounts : {}
+        )
+      );
+      const locationAmounts = {};
+      const editedLocations = [];
+      const locations = unique([].concat(getKnownLocations(), Object.keys(base), Object.keys(draft)));
+      let totalBudget = locations.reduce((sum, location) => {
         const baseValue = Math.max(0, num(base[location]));
-        const draftValue = Math.max(0, Number.isFinite(Number(draft[location])) ? Number(draft[location]) : baseValue);
+        const hasDraftValue = Object.prototype.hasOwnProperty.call(draft, location);
+        const draftValue = Math.max(0, hasDraftValue && Number.isFinite(Number(draft[location])) ? Number(draft[location]) : baseValue);
+        locationAmounts[location] = draftValue;
+        if (hasDraftValue && allocationRoundedValue(draftValue) !== allocationRoundedValue(baseValue)) {
+          editedLocations.push(location);
+        }
         return sum + draftValue;
       }, 0);
 
-      // Source of truth is Railway; editing updates the total budget and re-applies location map.
+      const baseTotal = sumAmountMap(base);
+      if (totalBudget <= 0 && baseTotal > 0 && !Object.keys(draft).length) {
+        Object.keys(base).forEach((location) => {
+          locationAmounts[location] = base[location];
+        });
+        totalBudget = baseTotal;
+      }
+      if (totalBudget <= 0 && matchingMatrixRow && num(matchingMatrixRow.totalBudget) > 0) {
+        const rebuilt = buildDistributedLocationAmounts(matchingMatrixRow.totalBudget);
+        Object.keys(rebuilt.amounts).forEach((location) => {
+          locationAmounts[location] = rebuilt.amounts[location];
+        });
+        totalBudget = sumAmountMap(locationAmounts);
+      }
+      if (totalBudget <= 0 && matchingAllocationEntry && num(matchingAllocationEntry.targetAmount) > 0) {
+        const rebuilt = buildDistributedLocationAmounts(matchingAllocationEntry.targetAmount);
+        Object.keys(rebuilt.amounts).forEach((location) => {
+          locationAmounts[location] = rebuilt.amounts[location];
+        });
+        totalBudget = sumAmountMap(locationAmounts);
+      }
+      const distributionMap = buildDistributedLocationAmounts(totalBudget);
+      const optimisticRow = {
+        id: String(modal.matrixId || (matchingMatrixRow && matchingMatrixRow.id) || ""),
+        financialYear: String(modal.financialYear || ""),
+        coding: String(modal.coding || ""),
+        item: String(modal.item || ""),
+        owner: String(modal.owner || ""),
+        totalBudget,
+        costDistribution: "Distributed",
+        locationAmounts,
+        locationPercents: distributionMap.percents,
+        editedLocations
+      };
+      upsertAllocationMatrixOverride(optimisticRow);
+      upsertLocalAllocationMatrixRow(optimisticRow);
+
+      // Editing should only change the edited location(s). Store explicit per-location amounts (no redistribution).
       saveAllocationMatrixRowToServer({
         financialYear: String(modal.financialYear || ""),
         coding: String(modal.coding || ""),
         item: String(modal.item || ""),
         owner: String(modal.owner || ""),
         totalBudget,
-        costDistribution: "Distributed"
+        costDistribution: "Distributed",
+        locationAmounts,
+        locationPercents: distributionMap.percents
       })
         .then(() => loadAllocationMatrixFromServer())
         .catch((error) => console.error("Allocation matrix update failed:", error));
@@ -1138,6 +1775,7 @@ function render() {
           const codingBase = num(codingTotals[item.key] || 0);
           const share = selectedBaseTotal > 0 ? codingBase / selectedBaseTotal : equalShare;
           const targetAmount = batchTotal * share;
+          const distributionMap = buildDistributedLocationAmounts(targetAmount);
           delete dbMap[`${item.key}||${normalizeText(owner)}||`];
           dbMap[`${item.key}||${normalizeText(owner)}||${financialYear}`] = {
             id: `alloc_${Date.now()}_${Math.floor(Math.random() * 100000)}`,
@@ -1151,13 +1789,35 @@ function render() {
           };
 
           // Persist one full allocation-matrix row per coding/owner/year to Railway.
+          upsertAllocationMatrixOverride({
+            financialYear,
+            coding: item.code,
+            item: state.allocationControls.item || "",
+            owner,
+            totalBudget: targetAmount,
+            costDistribution: "Distributed",
+            locationAmounts: distributionMap.amounts,
+            locationPercents: distributionMap.percents
+          });
+          upsertLocalAllocationMatrixRow({
+            financialYear,
+            coding: item.code,
+            item: state.allocationControls.item || "",
+            owner,
+            totalBudget: targetAmount,
+            costDistribution: "Distributed",
+            locationAmounts: distributionMap.amounts,
+            locationPercents: distributionMap.percents
+          });
           saveAllocationMatrixRowToServer({
             financialYear,
             coding: item.code,
             item: state.allocationControls.item || "",
             owner,
             totalBudget: targetAmount,
-            costDistribution: "Distributed"
+            costDistribution: "Distributed",
+            locationAmounts: distributionMap.amounts,
+            locationPercents: distributionMap.percents
           })
             .then(() => loadAllocationMatrixFromServer())
             .catch((error) => console.error("Allocation matrix save failed:", error));
@@ -1185,6 +1845,13 @@ function render() {
 
     const id = target.id || "";
     const value = "value" in target ? target.value : "";
+
+    if (id === "planner-budget-upload" && target instanceof HTMLInputElement) {
+      const file = target.files && target.files[0];
+      target.value = "";
+      if (file) importBudgetPlannerFile(file);
+      return;
+    }
 
     if (id.startsWith("dashboard-")) {
       const key = id.replace("dashboard-", "");
@@ -1508,7 +2175,10 @@ function render() {
   if (!Array.isArray(state.allocationDb)) {
     state.allocationDb = loadAllocationDb();
   }
-  // Allocation matrix source of truth is Railway; do not load local matrix edits.
+  if (!state.allocationMatrixOverrides || typeof state.allocationMatrixOverrides !== "object") {
+    state.allocationMatrixOverrides = loadAllocationMatrixOverrides();
+  }
+  // Railway remains the source of truth; local rows are only temporary optimistic overlays.
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
 async function loadLiveBudgetData(logStatus) {
@@ -1523,6 +2193,7 @@ async function loadLiveBudgetData(logStatus) {
       id: String(row.id || ""),
       coding: row.coding || row.Coding || "",
       item: row.item || row.Item || "",
+      subCategoryMapped: row.sub_category_mapped || row["Sub Category (Mapped)"] || "",
       categoryIt: row.category_it || row.Category_IT || "",
       subCategory: row.sub_category || row["Sub Category"] || "",
       newCategory: row.new_category || row["New Category"] || "",
@@ -1534,6 +2205,7 @@ async function loadLiveBudgetData(logStatus) {
       costCenter: row.cost_center_department || row["Cost Center / Department"] || "",
       location: row.location || row.Location || "",
       financialYear: row.financial_year || row["Financial Year"] || "",
+      costDistribution: row.cost_distribution || row["Cost Distribution"] || "Fixed Cost",
       locFyCurrent: Number(row.loc_fy_current || row["loc_fy_current"] || 0),
       locLe: Number(row.loc_le || row["loc_le"] || 0),
       locFyLast: Number(row.loc_fy_last || row["loc_fy_last"] || 0),
@@ -1543,7 +2215,8 @@ async function loadLiveBudgetData(logStatus) {
       priceIncrease: Number(row.price_increase || row["price_increase"] || 0),
       newUnit: Number(row.new_unit || row["new_unit"] || 0),
       licenseIncrease: Number(row.license_increase || row["license_increase"] || 0),
-      rest: Number(row.rest || 0)
+      rest: Number(row.rest || 0),
+      justification: row.justification || row.Justification || ""
     }));
 
     state.records = recalculateRecords(remoteRecords);

@@ -53,7 +53,7 @@ const COLUMN_ORDER = [
   "Cost Center / Department"
 ];
 
-app.use(express.json({ limit: "1mb" }));
+app.use(express.json({ limit: "10mb" }));
 
 // CORS
 app.use((req, res, next) => {
@@ -101,6 +101,7 @@ function normalizeSubmission(body) {
     "Coding": body["Coding"] || "",
     "Item": body["Item"] || "",
 
+    "Sub Category (Mapped)": body["Sub Category (Mapped)"] || body["sub_category_mapped"] || "",
     "Category_IT": body["Category_IT"] || "",
     "Sub Category": body["Sub Category"] || "",
     "New Category": body["New Category"] || "",
@@ -116,6 +117,7 @@ function normalizeSubmission(body) {
 
     "Financial Year": body["Financial Year"] || "",
     "Location": body["Location"] || "",
+    "Cost Distribution": body["Cost Distribution"] || body["cost_distribution"] || "Fixed Cost",
 
     "loc_fy_current": Number(body["loc_fy_current"] || 0),
     "loc_fy_last": Number(body["loc_fy_last"] || 0),
@@ -127,7 +129,8 @@ function normalizeSubmission(body) {
     "price_increase": Number(body["price_increase"] || 0),
     "new_unit": Number(body["new_unit"] || 0),
     "license_increase": Number(body["license_increase"] || 0),
-    "rest": Number(body["rest"] || 0)
+    "rest": Number(body["rest"] || 0),
+    "Justification": body["Justification"] || body["justification"] || ""
   };
 }
 
@@ -152,16 +155,34 @@ async function getMysqlPool() {
 
   return mysqlPool;
 }
+
+async function ensureBudgetSubmissionImportColumns() {
+  const pool = await getMysqlPool();
+  if (!pool) return;
+
+  const [columns] = await pool.query("SHOW COLUMNS FROM budget_submissions");
+  const names = new Set((Array.isArray(columns) ? columns : []).map((column) => String(column.Field || "").toLowerCase()));
+  const alters = [];
+  if (!names.has("sub_category_mapped")) alters.push("ADD COLUMN sub_category_mapped VARCHAR(255) NULL AFTER item");
+  if (!names.has("cost_distribution")) alters.push("ADD COLUMN cost_distribution VARCHAR(40) NOT NULL DEFAULT 'Fixed Cost' AFTER location");
+  if (!names.has("justification")) alters.push("ADD COLUMN justification TEXT NULL AFTER rest");
+  for (const alter of alters) {
+    await pool.query(`ALTER TABLE budget_submissions ${alter}`);
+  }
+}
+
 async function insertBudgetSubmissionDb(row) {
   const pool = await getMysqlPool();
 
   if (!pool) return null;
+  await ensureBudgetSubmissionImportColumns();
 
   const sql = `
     INSERT INTO budget_submissions (
       submitted_at,
       coding,
       item,
+      sub_category_mapped,
       category_it,
       sub_category,
       new_category,
@@ -173,6 +194,7 @@ async function insertBudgetSubmissionDb(row) {
       cost_center_department,
       financial_year,
       location,
+      cost_distribution,
       loc_fy_current,
       loc_fy_last,
       loc_le,
@@ -182,15 +204,17 @@ async function insertBudgetSubmissionDb(row) {
       price_increase,
       new_unit,
       license_increase,
-      rest
+      rest,
+      justification
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
 
   const params = [
     row["Submitted At"] || null,
     row["Coding"] || null,
     row["Item"] || null,
+    row["Sub Category (Mapped)"] || null,
     row["Category_IT"] || null,
     row["Sub Category"] || null,
     row["New Category"] || null,
@@ -202,6 +226,7 @@ async function insertBudgetSubmissionDb(row) {
     row["Cost Center / Department"] || null,
     row["Financial Year"] || null,
     row["Location"] || null,
+    row["Cost Distribution"] || "Fixed Cost",
     row["loc_fy_current"] || 0,
     row["loc_fy_last"] || 0,
     row["loc_le"] || 0,
@@ -211,7 +236,8 @@ async function insertBudgetSubmissionDb(row) {
     row["price_increase"] || 0,
     row["new_unit"] || 0,
     row["license_increase"] || 0,
-    row["rest"] || 0
+    row["rest"] || 0,
+    row["Justification"] || null
   ];
 
   const [result] = await pool.execute(sql, params);
@@ -222,12 +248,14 @@ async function insertBudgetSubmissionDb(row) {
 async function updateBudgetSubmissionDb(id, row) {
   const pool = await getMysqlPool();
   if (!pool) return 0;
+  await ensureBudgetSubmissionImportColumns();
 
   const sql = `
     UPDATE budget_submissions
     SET
       coding = ?,
       item = ?,
+      sub_category_mapped = ?,
       category_it = ?,
       sub_category = ?,
       new_category = ?,
@@ -239,6 +267,7 @@ async function updateBudgetSubmissionDb(id, row) {
       cost_center_department = ?,
       financial_year = ?,
       location = ?,
+      cost_distribution = ?,
       loc_fy_current = ?,
       loc_fy_last = ?,
       loc_le = ?,
@@ -248,13 +277,15 @@ async function updateBudgetSubmissionDb(id, row) {
       price_increase = ?,
       new_unit = ?,
       license_increase = ?,
-      rest = ?
+      rest = ?,
+      justification = ?
     WHERE id = ?
   `;
 
   const params = [
     row["Coding"] || null,
     row["Item"] || null,
+    row["Sub Category (Mapped)"] || null,
     row["Category_IT"] || null,
     row["Sub Category"] || null,
     row["New Category"] || null,
@@ -266,6 +297,7 @@ async function updateBudgetSubmissionDb(id, row) {
     row["Cost Center / Department"] || null,
     row["Financial Year"] || null,
     row["Location"] || null,
+    row["Cost Distribution"] || "Fixed Cost",
     row["loc_fy_current"] || 0,
     row["loc_fy_last"] || 0,
     row["loc_le"] || 0,
@@ -276,6 +308,7 @@ async function updateBudgetSubmissionDb(id, row) {
     row["new_unit"] || 0,
     row["license_increase"] || 0,
     row["rest"] || 0,
+    row["Justification"] || null,
     id
   ];
 
@@ -288,6 +321,42 @@ async function deleteBudgetSubmissionDb(id) {
   if (!pool) return 0;
   const [result] = await pool.execute("DELETE FROM budget_submissions WHERE id = ?", [id]);
   return result.affectedRows || 0;
+}
+
+function budgetImportKey(row) {
+  return [
+    sanitize(row["Financial Year"]).toLowerCase(),
+    sanitize(row["Coding"]).toLowerCase(),
+    sanitize(row["Owner"]).toLowerCase(),
+    sanitize(row["Location"]).toLowerCase(),
+    sanitize(row["Cost Distribution"] || "Fixed Cost").toLowerCase()
+  ].join("||");
+}
+
+async function findBudgetSubmissionsByImportKey(row) {
+  const pool = await getMysqlPool();
+  if (!pool) return [];
+  await ensureBudgetSubmissionImportColumns();
+  const [rows] = await pool.execute(
+    `
+      SELECT id
+      FROM budget_submissions
+      WHERE financial_year = ?
+        AND LOWER(coding) = LOWER(?)
+        AND LOWER(owner) = LOWER(?)
+        AND LOWER(location) = LOWER(?)
+        AND LOWER(cost_distribution) = LOWER(?)
+      ORDER BY id DESC
+    `,
+    [
+      row["Financial Year"] || "",
+      row["Coding"] || "",
+      row["Owner"] || "",
+      row["Location"] || "",
+      row["Cost Distribution"] || "Fixed Cost"
+    ]
+  );
+  return Array.isArray(rows) ? rows : [];
 }
 
 async function getMysqlHealth() {
@@ -492,6 +561,71 @@ app.post("/api/budget-submissions", async (req, res) => {
   }
 });
 
+app.post("/api/budget-planner/import", async (req, res) => {
+  try {
+    const inputRows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
+    if (!inputRows.length) {
+      return res.status(400).json({ message: "No Budget_Planner rows received." });
+    }
+    if (!mysqlConfigured()) {
+      return res.status(500).json({ message: "MySQL is not configured. Excel import needs the online DB connection." });
+    }
+
+    await ensureBudgetSubmissionImportColumns();
+
+    const seen = new Set();
+    const result = {
+      received: inputRows.length,
+      created: 0,
+      updated: 0,
+      skipped: 0,
+      errors: []
+    };
+
+    for (let index = 0; index < inputRows.length; index += 1) {
+      const rowNumber = index + 2;
+      const row = normalizeSubmission(inputRows[index] || {});
+      const missing = [];
+      if (!sanitize(row["Financial Year"])) missing.push("Financial Year");
+      if (!sanitize(row["Coding"])) missing.push("Coding");
+      if (!sanitize(row["Owner"])) missing.push("Owner");
+      if (!sanitize(row["Location"])) missing.push("MAX Hospital");
+      if (!sanitize(row["Cost Distribution"])) row["Cost Distribution"] = "Fixed Cost";
+
+      if (missing.length) {
+        result.skipped += 1;
+        result.errors.push({ row: rowNumber, message: `Missing ${missing.join(", ")}` });
+        continue;
+      }
+
+      const key = budgetImportKey(row);
+      if (seen.has(key)) {
+        result.skipped += 1;
+        result.errors.push({ row: rowNumber, message: "Duplicate row in uploaded Excel for same Financial Year + Coding + Owner + MAX Hospital + Cost Distribution." });
+        continue;
+      }
+      seen.add(key);
+
+      const existingRows = await findBudgetSubmissionsByImportKey(row);
+      const existing = existingRows[0] || null;
+      if (existing && existing.id) {
+        for (const duplicate of existingRows.slice(1)) {
+          if (duplicate && duplicate.id) await deleteBudgetSubmissionDb(duplicate.id);
+        }
+        await updateBudgetSubmissionDb(existing.id, row);
+        result.updated += 1;
+      } else {
+        await insertBudgetSubmissionDb(row);
+        result.created += 1;
+      }
+    }
+
+    return res.status(200).json(result);
+  } catch (error) {
+    return res.status(500).json({ message: `Import failed: ${error.message}` });
+  }
+});
+
 // GET BUDGET DATA
 app.get("/api/budget-data", async (req, res) => {
   try {
@@ -617,6 +751,20 @@ async function deleteAllocationRecordDb(id) {
   return result.affectedRows || 0;
 }
 
+async function deleteAllocationRecordByKeyDb(payload) {
+  const pool = await getMysqlPool();
+  if (!pool) return 0;
+  const coding = sanitize(payload.coding);
+  const owner = sanitize(payload.owner);
+  const financialYear = sanitize(payload.financialYear || payload.financial_year || payload.year);
+  if (!coding || !owner || !financialYear) return 0;
+  const [result] = await pool.execute(
+    "DELETE FROM allocation_records WHERE coding = ? AND owner = ? AND financial_year = ?",
+    [coding, owner, financialYear]
+  );
+  return result.affectedRows || 0;
+}
+
 app.post("/api/allocation-data", async (req, res) => {
   try {
     const saved = await upsertAllocationRecordDb(req.body || {});
@@ -624,6 +772,16 @@ app.post("/api/allocation-data", async (req, res) => {
       return res.status(400).json({ message: "Missing coding/owner/financialYear." });
     }
     return res.status(200).json(saved);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/allocation-data/by-key", async (req, res) => {
+  try {
+    const affectedRows = await deleteAllocationRecordByKeyDb(req.query || {});
+    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
@@ -662,7 +820,31 @@ async function getAllocationMapDb() {
   const pool = await getMysqlPool();
   if (!pool) return [];
   const [rows] = await pool.query("SELECT location, percent FROM allocation_location_map ORDER BY location ASC");
-  return Array.isArray(rows) ? rows : [];
+  const cleaned = Array.isArray(rows) ? rows.filter((row) => row && row.location) : [];
+  if (cleaned.length) return cleaned;
+
+  // Fallback map so localhost works even before the map is seeded in MySQL.
+  return [
+    { location: "Saket", percent: 13.87 },
+    { location: "Max Smart", percent: 5.67 },
+    { location: "Gurgaon", percent: 3.59 },
+    { location: "Lajpat Nagar", percent: 0.36 },
+    { location: "Panchsheel", percent: 1.42 },
+    { location: "Patparganj", percent: 8.03 },
+    { location: "Vaishali", percent: 7.56 },
+    { location: "Noida", percent: 0.47 },
+    { location: "Shalimar Bagh", percent: 6.44 },
+    { location: "Mohali", percent: 4.53 },
+    { location: "Dehradun", percent: 3.5 },
+    { location: "Bathinda", percent: 1.91 },
+    { location: "HO", percent: 3.4 },
+    { location: "BLK", percent: 11.28 },
+    { location: "Nanawati", percent: 6.19 },
+    { location: "Nagpur", percent: 4.72 },
+    { location: "Lucknow", percent: 5.2 },
+    { location: "Dwarka", percent: 5.2 },
+    { location: "Jaypee Noida", percent: 6.67 }
+  ];
 }
 
 function buildAmountMap(totalBudget, locationMapRows) {
@@ -677,6 +859,29 @@ function buildAmountMap(totalBudget, locationMapRows) {
     amounts[row.location] = weightTotal ? (total * pct) / weightTotal : 0;
   });
   return { amounts, percents };
+}
+
+function isPlainObject(value) {
+  return value && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasObjectKeys(value) {
+  return isPlainObject(value) && Object.keys(value).length > 0;
+}
+
+function cleanAmountMap(value) {
+  const cleaned = {};
+  if (!isPlainObject(value)) return cleaned;
+  Object.keys(value).forEach((location) => {
+    if (!location) return;
+    const amount = Number(value[location] || 0);
+    cleaned[location] = Number.isFinite(amount) && amount > 0 ? amount : 0;
+  });
+  return cleaned;
+}
+
+function sumAmountMap(value) {
+  return Object.keys(value || {}).reduce((sum, key) => sum + Number(value[key] || 0), 0);
 }
 
 app.get("/api/allocation-matrix", async (req, res) => {
@@ -705,14 +910,51 @@ app.post("/api/allocation-matrix", async (req, res) => {
     const item = sanitize(body.item || body.Item);
     const owner = sanitize(body.owner || body.Owner);
     const costDistribution = sanitize(body.costDistribution || body.cost_distribution || body.mode || "Distributed") || "Distributed";
-    const totalBudget = Number(body.totalBudget || body.total_budget || body.targetAmount || 0);
+    const totalBudgetInput = Number(body.totalBudget || body.total_budget || body.targetAmount || 0);
 
     if (!financialYear || !coding || !owner) {
       return res.status(400).json({ message: "Missing financialYear/coding/owner." });
     }
 
     const mapRows = await getAllocationMapDb();
-    const built = buildAmountMap(totalBudget, mapRows);
+    const built = buildAmountMap(totalBudgetInput, mapRows);
+
+    // If the client sends explicit per-location amounts (editing), store them as-is.
+    const rawAmounts = body.locationAmounts || body.location_amounts || body.location_amounts_json || null;
+    const rawPercents = body.locationPercents || body.location_percents || body.location_percents_json || null;
+    const explicitAmountsRaw = (() => {
+      if (!rawAmounts) return null;
+      try {
+        if (typeof rawAmounts === "string") return JSON.parse(rawAmounts);
+        if (typeof rawAmounts === "object") return rawAmounts;
+        return null;
+      } catch (_e) {
+        return null;
+      }
+    })();
+    const explicitPercentsRaw = (() => {
+      if (!rawPercents) return null;
+      try {
+        if (typeof rawPercents === "string") return JSON.parse(rawPercents);
+        if (typeof rawPercents === "object") return rawPercents;
+        return null;
+      } catch (_e) {
+        return null;
+      }
+    })();
+
+    const explicitAmountsCandidate = hasObjectKeys(explicitAmountsRaw) ? cleanAmountMap(explicitAmountsRaw) : null;
+    const explicitAmounts =
+      explicitAmountsCandidate && sumAmountMap(explicitAmountsCandidate) > 0
+        ? explicitAmountsCandidate
+        : null;
+    const explicitPercents = hasObjectKeys(explicitPercentsRaw) ? explicitPercentsRaw : null;
+    const resolvedAmounts = explicitAmounts || (built.amounts || {});
+    const resolvedPercents = explicitPercents || (built.percents || {});
+    const resolvedTotalBudget =
+      explicitAmounts
+        ? sumAmountMap(resolvedAmounts)
+        : totalBudgetInput;
     const sql = `
       INSERT INTO allocation_matrix (
         financial_year,
@@ -740,10 +982,10 @@ app.post("/api/allocation-matrix", async (req, res) => {
       coding,
       item,
       owner,
-      totalBudget,
+      resolvedTotalBudget,
       costDistribution,
-      JSON.stringify(built.amounts || {}),
-      JSON.stringify(built.percents || {})
+      JSON.stringify(resolvedAmounts || {}),
+      JSON.stringify(resolvedPercents || {})
     ]);
 
     const [rows] = await pool.execute(
@@ -751,6 +993,29 @@ app.post("/api/allocation-matrix", async (req, res) => {
       [financialYear, coding, owner, costDistribution]
     );
     return res.status(200).json(rows && rows[0] ? rows[0] : { message: "Saved." });
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
+app.delete("/api/allocation-matrix/by-key", async (req, res) => {
+  try {
+    const pool = await getMysqlPool();
+    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
+    const financialYear = sanitize(req.query.financialYear || req.query.financial_year || req.query.year);
+    const coding = sanitize(req.query.coding);
+    const owner = sanitize(req.query.owner);
+    const costDistribution = sanitize(req.query.costDistribution || req.query.cost_distribution || "Distributed") || "Distributed";
+    if (!financialYear || !coding || !owner) {
+      return res.status(400).json({ message: "Missing financialYear/coding/owner." });
+    }
+    const [result] = await pool.execute(
+      "DELETE FROM allocation_matrix WHERE financial_year = ? AND coding = ? AND owner = ? AND cost_distribution = ?",
+      [financialYear, coding, owner, costDistribution]
+    );
+    const affectedRows = result.affectedRows || 0;
+    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }

@@ -125,9 +125,18 @@
   }
 
   function getAllLocations() {
-    const mapped = Array.isArray(data.ALL_LOCATIONS) ? data.ALL_LOCATIONS : [];
+    const mapped = Array.isArray(data.ALL_LOCATIONS)
+      ? data.ALL_LOCATIONS
+      : Array.isArray(data.LOCATIONS)
+      ? data.LOCATIONS
+      : [];
     const fromRecords = getRecords().map((record) => record.location);
-    return uniq([].concat(mapped, FALLBACK_LOCATIONS, fromRecords));
+    const fromMatrixRows = (Array.isArray(state.allocationMatrixRows) ? state.allocationMatrixRows : []).flatMap((row) => {
+      const amounts = row && row.locationAmounts && typeof row.locationAmounts === "object" ? Object.keys(row.locationAmounts) : [];
+      const percents = row && row.locationPercents && typeof row.locationPercents === "object" ? Object.keys(row.locationPercents) : [];
+      return amounts.concat(percents);
+    });
+    return uniq([].concat(mapped, FALLBACK_LOCATIONS, Object.keys(ALLOCATION_DISTRIBUTION_MAP), fromRecords, fromMatrixRows));
   }
 
   function optionValuesForKey(key) {
@@ -922,26 +931,59 @@
     return normalized === "distributed" || normalized === "distribution";
   }
 
+  function buildDistributionAmounts(totalBudget) {
+    const total = Math.max(0, num(totalBudget));
+    const weightedLocations = getAllLocations().filter(
+      (location) =>
+        Object.prototype.hasOwnProperty.call(ALLOCATION_DISTRIBUTION_MAP, location) &&
+        num(ALLOCATION_DISTRIBUTION_MAP[location]) > 0
+    );
+    const weightTotal = weightedLocations.reduce((sum, location) => sum + num(ALLOCATION_DISTRIBUTION_MAP[location]), 0);
+    const amounts = {};
+    weightedLocations.forEach((location) => {
+      amounts[location] = weightTotal ? (total * num(ALLOCATION_DISTRIBUTION_MAP[location])) / weightTotal : 0;
+    });
+    return amounts;
+  }
+
+  function distributionPercentMapForLocations(locations) {
+    const map = {};
+    (locations || getAllLocations()).forEach((location) => {
+      if (!Object.prototype.hasOwnProperty.call(ALLOCATION_DISTRIBUTION_MAP, location)) return;
+      const pct = num(ALLOCATION_DISTRIBUTION_MAP[location]);
+      if (pct > 0) map[location] = pct;
+    });
+    return map;
+  }
+
   function allocationDistributionShareCard(locations, amountBase, sourceNote) {
     const orderedLocations = uniq([].concat(locations || [], Object.keys(ALLOCATION_DISTRIBUTION_MAP)));
+    const weightTotal = orderedLocations.reduce((sum, location) => sum + num(ALLOCATION_DISTRIBUTION_MAP[location] || 0), 0);
+    const distributedAmounts = buildDistributionAmounts(amountBase);
     const rows = orderedLocations.map((location) => {
       const sharePercent = Object.prototype.hasOwnProperty.call(ALLOCATION_DISTRIBUTION_MAP, location)
         ? num(ALLOCATION_DISTRIBUTION_MAP[location])
         : 0;
-      const shareAmount = num(amountBase) > 0 ? (num(amountBase) * sharePercent) / 100 : 0;
+      const normalizedShareAmount =
+        num(amountBase) > 0
+          ? Object.prototype.hasOwnProperty.call(distributedAmounts, location)
+            ? num(distributedAmounts[location])
+            : weightTotal
+            ? (num(amountBase) * sharePercent) / weightTotal
+            : 0
+          : 0;
       return `
         <tr>
           <td>${esc(location)}</td>
           <td><span class="allocation-share-pill">${esc(pct(sharePercent))}</span></td>
-          <td>${num(amountBase) > 0 ? esc(fmt(shareAmount)) : `<span class="muted-cell">Enter amount to preview</span>`}</td>
+          <td>${num(amountBase) > 0 ? esc(fmt(normalizedShareAmount)) : `<span class="muted-cell">Enter amount to preview</span>`}</td>
         </tr>
       `;
     });
-    const totalPercent = orderedLocations.reduce((sum, location) => sum + num(ALLOCATION_DISTRIBUTION_MAP[location] || 0), 0);
     rows.push(`
       <tr class="table-total-row">
         <td><strong>Total</strong></td>
-        <td><strong>${esc(pct(totalPercent))}</strong></td>
+        <td><strong>${esc(weightTotal ? "100%" : "0%")}</strong></td>
         <td><strong>${num(amountBase) > 0 ? esc(fmt(amountBase)) : "-"}</strong></td>
       </tr>
     `);
@@ -1888,6 +1930,7 @@
     const savedCoding = String(savedFilters.coding || "");
     const savedItem = String(savedFilters.item || "");
     const savedOwner = String(savedFilters.owner || "");
+    const plannerImportMessage = String(state.plannerImportMessage || "");
 
     const allRecords = getRecords();
     const savedFilteredRecords = allRecords.filter((record) => {
@@ -2027,9 +2070,12 @@
             <p>Filter the saved planner rows by year, location, coding, item, and owner.</p>
           </div>
           <div class="dashboard-filter-meta">
+            <input id="planner-budget-upload" type="file" accept=".xlsx,.xls" hidden />
+            <button type="button" class="btn btn-primary" data-action="planner-budget-import">Upload Budget Planner Excel</button>
             <button type="button" class="btn btn-soft" data-action="planner-saved-export">Download Excel</button>
           </div>
         </div>
+        ${plannerImportMessage ? `<div class="allocation-submit-note">${esc(plannerImportMessage)}</div>` : ""}
         <div class="filter-grid">
           ${selectCard("plannerSaved-financialYear", "Financial Year", savedYear, optionValuesForKey("financialYear"), "All")}
           ${selectCard("plannerSaved-location", "Location", savedLocation, getAllLocations(), "All")}
@@ -2365,13 +2411,55 @@
     const matrixRowsFromServer = Array.isArray(state.allocationMatrixRows) ? state.allocationMatrixRows : null;
 
     const grouped = {};
+    function addRecordToGrouped(record) {
+      const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
+      const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
+      if (!grouped[key]) {
+        grouped[key] = {
+          financialYear: record.financialYear || "",
+          coding: record.coding || "",
+          item: resolvedItem || "",
+          owner: record.owner || "",
+          totalBudget: 0,
+          originalTotalBudget: 0,
+          allocationType: record.__allocationType || "Fixed Cost",
+          locations: {}
+        };
+      }
+      if (!grouped[key].item && resolvedItem) {
+        grouped[key].item = resolvedItem;
+      }
+      if (grouped[key].allocationType !== (record.__allocationType || "Fixed Cost")) {
+        grouped[key].allocationType = "Mixed";
+      }
+      grouped[key].totalBudget += num(record.locFyCurrent);
+      grouped[key].originalTotalBudget += num(record.locFyCurrent);
+      grouped[key].locations[record.location || "Unassigned"] =
+        (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
+    }
+
     if (matrixRowsFromServer && matrixRowsFromServer.length) {
+      effectiveRecords
+        .filter((record) => normalizeText(record.__allocationType || "Fixed Cost") !== "distributed")
+        .forEach(addRecordToGrouped);
+
       matrixRowsFromServer.forEach((row) => {
         const year = String(row.financialYear || "");
         const coding = String(row.coding || "");
         const owner = String(row.owner || "");
         const item = String(row.item || "");
         const allocationType = String(row.costDistribution || "Distributed");
+        const storedAmounts = Object.assign({}, row.locationAmounts || {});
+        const storedTotal = Object.keys(storedAmounts).reduce((sum, location) => sum + num(storedAmounts[location]), 0);
+        const matchingEntry = appliedEntries.find(
+          (entry) =>
+            String(entry.financialYear || entry.year || "") === year &&
+            normalizeText(entry.coding) === normalizeText(coding) &&
+            normalizeText(entry.owner) === normalizeText(owner)
+        );
+        const recoveryTotal = storedTotal || num(row.totalBudget || 0) || num(matchingEntry && matchingEntry.targetAmount);
+        const originalTotal = num(matchingEntry && matchingEntry.targetAmount) || num(row.originalTotalBudget) || recoveryTotal;
+        const resolvedAmounts = storedTotal > 0 ? storedAmounts : buildDistributionAmounts(recoveryTotal);
         const key = [year, coding, item, owner].join("||");
         if (!grouped[key]) {
           grouped[key] = {
@@ -2380,37 +2468,17 @@
             coding,
             item,
             owner,
-            totalBudget: num(row.totalBudget || 0),
+            totalBudget: recoveryTotal,
+            originalTotalBudget: originalTotal,
             allocationType,
-            locations: Object.assign({}, row.locationAmounts || {})
+            locations: resolvedAmounts,
+            locationPercents: Object.assign({}, row.locationPercents || {}),
+            editedLocations: Array.isArray(row.editedLocations) ? row.editedLocations : []
           };
         }
       });
     } else {
-      effectiveRecords.forEach((record) => {
-        const resolvedItem = String(record.item || "").trim() || mappedItemForCode(record.coding);
-        const key = [record.financialYear || "", record.coding, resolvedItem, record.owner].join("||");
-        if (!grouped[key]) {
-          grouped[key] = {
-            financialYear: record.financialYear || "",
-            coding: record.coding || "",
-            item: resolvedItem || "",
-            owner: record.owner || "",
-            totalBudget: 0,
-            allocationType: record.__allocationType || "Fixed Cost",
-            locations: {}
-          };
-        }
-        if (!grouped[key].item && resolvedItem) {
-          grouped[key].item = resolvedItem;
-        }
-        if (grouped[key].allocationType !== (record.__allocationType || "Fixed Cost")) {
-          grouped[key].allocationType = "Mixed";
-        }
-        grouped[key].totalBudget += num(record.locFyCurrent);
-        grouped[key].locations[record.location || "Unassigned"] =
-          (grouped[key].locations[record.location || "Unassigned"] || 0) + num(record.locFyCurrent);
-      });
+      effectiveRecords.forEach(addRecordToGrouped);
     }
 
     const allEntries = Object.values(grouped)
@@ -2443,7 +2511,9 @@
       const rowKey = allocationRowKey(entry.coding || "", entry.item || "", entry.owner || "", entry.financialYear || "");
       const rowAllocationType = entry.allocationType || "Fixed Cost";
       const canEditRow = normalizeText(rowAllocationType) === "distributed";
+      const editedLocationSet = new Set((Array.isArray(entry.editedLocations) ? entry.editedLocations : []).map((location) => normalizeText(location)));
       let editableTotal = 0;
+      const originalTotalBudget = num(entry.originalTotalBudget || entry.totalBudget || 0);
       const baseByLocation = {};
       const currentByLocation = {};
       const cells = locations
@@ -2452,7 +2522,7 @@
           baseByLocation[location] = baseValue;
           const editedValue = baseValue;
           currentByLocation[location] = editedValue;
-          const isEdited = false;
+          const isEdited = canEditRow && editedLocationSet.has(normalizeText(location));
           editableTotal += editedValue;
 
           return `
@@ -2536,7 +2606,16 @@
           <td>${esc(entry.item)}</td>
           <td>${esc(entry.owner)}</td>
           <td>${esc(rowAllocationType)}</td>
-          <td data-role="allocation-row-total">${esc(fmt(editableTotal))}</td>
+          <td data-role="allocation-row-total">
+            ${
+              canEditRow && allocationRoundedValue(originalTotalBudget) !== allocationRoundedValue(editableTotal)
+                ? `<div class="allocation-total-stack">
+                    <strong>${esc(fmt(originalTotalBudget))}</strong>
+                    <small>Adjusted: ${esc(fmt(editableTotal))}</small>
+                  </div>`
+                : esc(fmt(editableTotal))
+            }
+          </td>
           ${cells}
           ${rowActions}
         </tr>
@@ -2645,12 +2724,22 @@
       `
       : "";
     const amountFieldBase = num(controls.amount);
-    const distributionShareBase = amountFieldBase > 0 ? amountFieldBase : allocationContext.distributedBudget;
+    const matrixDistributedBase = allEntries
+      .filter((entry) => normalizeText(entry.allocationType) === "distributed")
+      .reduce((sum, entry) => sum + num(entry.originalTotalBudget || entry.totalBudget), 0);
+    const distributionShareBase =
+      allocationContext.distributedBudget > 0
+        ? allocationContext.distributedBudget
+        : matrixDistributedBase > 0
+        ? matrixDistributedBase
+        : amountFieldBase;
     const distributionShareNote =
-      amountFieldBase > 0
+      allocationContext.distributedBudget > 0
+        ? "Amount preview is based on the total active submitted distributed budget."
+        : matrixDistributedBase > 0
+        ? "Amount preview is based on the total visible distributed budget."
+        : amountFieldBase > 0
         ? "Preview is based on the current Distribution Amount field."
-        : allocationContext.distributedBudget > 0
-        ? "Amount preview is based on the active submitted distributed budget."
         : "Enter Distribution Amount and click Submit Record to distribute by these fixed location percentages.";
 
     const matrixFilterBar = `

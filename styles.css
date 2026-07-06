@@ -2609,6 +2609,25 @@ details.multi-select summary::-webkit-details-marker {
   text-align: center;
 }
 
+.allocation-total-stack {
+  display: grid;
+  gap: 3px;
+  min-width: 92px;
+  line-height: 1.15;
+}
+
+.allocation-total-stack strong {
+  color: #0f3d72;
+  font-weight: 900;
+}
+
+.allocation-total-stack small {
+  color: #9a5a00;
+  font-size: 0.76rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
 .allocation-value-pill {
   display: inline-flex;
   align-items: center;
@@ -3598,7 +3617,8 @@ details.multi-select summary::-webkit-details-marker {
 .dashboard-location-track {
   height: 18px;
   border-radius: 999px;
-  background: #ecf1f6;
+  background: #b9cce0;
+  border: 1px solid #9bb6d2;
   overflow: hidden;
 }
 
@@ -3608,15 +3628,15 @@ details.multi-select summary::-webkit-details-marker {
   display: flex;
   overflow: hidden;
   border-radius: inherit;
-  box-shadow: 0 8px 18px rgba(14, 165, 233, 0.16);
+  box-shadow: 0 6px 14px rgba(15, 61, 114, 0.24);
 }
 
 .dashboard-location-used {
-  background: linear-gradient(90deg, var(--dash-sky), var(--dash-teal));
+  background: linear-gradient(90deg, #005ea8, #0097ad);
 }
 
 .dashboard-location-remaining {
-  background: linear-gradient(90deg, #dbeafe, #eef4fb);
+  background: linear-gradient(90deg, #7fb0df, #a9c9e9);
 }
 
 .dashboard-location-value {
@@ -3694,8 +3714,8 @@ details.multi-select summary::-webkit-details-marker {
 }
 
 .dashboard-remaining-chip {
-  background: #dbeafe;
-  border: 1px solid #bfd7f4;
+  background: #7fb0df;
+  border: 1px solid #5f96ca;
 }
 
 .dashboard-expense-chip {

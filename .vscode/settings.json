@@ -30,5 +30,6 @@
             "password": "Max@1",
             "connectionTimeout": 30
         }
-    ]
+    ],
+    "liveServer.settings.port": 5501
 }
