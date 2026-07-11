@@ -1,4 +1,5 @@
 (function () {
+  const utils = window.OpexUtils || {};
   const STORAGE_KEY = "it_opex_records_v3";
   const LEGACY_KEYS = ["it_opex_records_v2", "it_opex_records", "it_opex_records_v1"];
   const YEARS = ["2023-24", "2024-25", "2025-26", "2026-27", "2027-28", "2028-29", "2029-30", "2030-31"];
@@ -68,16 +69,21 @@
   }
 
   function toNumber(value) {
+    if (utils.parseFinancialAmount) return utils.parseFinancialAmount(value);
     if (value === null || value === undefined || value === "") return 0;
     const num = Number(String(value).replace(/,/g, "").replace(/%/g, "").trim());
     return Number.isFinite(num) ? num : 0;
   }
 
   function formatNumber(value) {
-    return new Intl.NumberFormat("en-IN", {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: Number.isInteger(Number(value || 0)) ? 0 : 2
-    }).format(Number(value || 0));
+    const parsed = toNumber(value);
+    if (utils.formatFinancialAmount) {
+      return utils.formatFinancialAmount(parsed, {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: Number.isInteger(parsed) ? 0 : 2
+      });
+    }
+    return new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(Number(value || 0));
   }
 
   function formatPercent(value) {

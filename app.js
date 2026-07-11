@@ -3,6 +3,7 @@
   const ui = window.OpexUI || {};
   const state = data.state || {};
   const h = data.helpers || {};
+  const utils = window.OpexUtils || {};
   const ALLOCATION_DB_KEY = "it_opex_allocation_db_v1";
   const ALLOCATION_MATRIX_OVERRIDES_KEY = "it_opex_allocation_matrix_overrides_v1";
   // API base selection:
@@ -55,7 +56,30 @@
   }
 
   function num(value) {
+    if (utils.parseFinancialAmount) return utils.parseFinancialAmount(value);
     return h.toNumber ? h.toNumber(value) : Number(value || 0);
+  }
+
+  function fmt(value) {
+    return utils.formatFinancialAmount
+      ? utils.formatFinancialAmount(value, { maximumFractionDigits: 2 })
+      : num(value).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  }
+
+  function applyFinancialFormats(sheet, moneyKeys) {
+    if (!sheet || !sheet["!ref"] || typeof XLSX === "undefined") return;
+    const range = XLSX.utils.decode_range(sheet["!ref"]);
+    const keys = new Set(moneyKeys || []);
+    const financialFormat = utils.EXCEL_FINANCIAL_FORMAT || "#,##,##0.##";
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const headerCell = sheet[XLSX.utils.encode_cell({ r: range.s.r, c: col })];
+      const header = headerCell ? String(headerCell.v || "") : "";
+      if (!keys.has(header)) continue;
+      for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
+        const cell = sheet[XLSX.utils.encode_cell({ r: row, c: col })];
+        if (cell && typeof cell.v === "number") cell.z = financialFormat;
+      }
+    }
   }
 
   function allocationRoundedValue(value) {
@@ -82,6 +106,22 @@
 
   function unique(values) {
     return Array.from(new Set((values || []).filter(Boolean)));
+  }
+
+  function uniqueCodingValues(values) {
+    if (utils.uniqueCodingValues) return utils.uniqueCodingValues(values);
+    const byKey = new Map();
+    (values || []).forEach((value) => {
+      const candidate = String(value || "").trim();
+      const key = candidate.toUpperCase();
+      if (!key) return;
+      if (!byKey.has(key) || candidate === key) byKey.set(key, candidate);
+    });
+    return Array.from(byKey.values());
+  }
+
+  function normalizeCodingKey(value) {
+    return utils.normalizeCodingKey ? utils.normalizeCodingKey(value) : String(value || "").trim().toUpperCase();
   }
 
   function getKnownLocations() {
@@ -154,8 +194,9 @@
 
   function getPlannerCodingOptions() {
     const fallback = Array.isArray(data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) ? data.FALLBACK_OPTIONS.coding : [];
+    const fromMaps = Object.keys(data.CODE_ITEM_MAP || {}).concat(Object.keys(data.CODE_PROFILE_MAP || {}));
     const fromRecords = (state.records || []).map((record) => record && record.coding);
-    return unique([].concat(fallback, fromRecords));
+    return uniqueCodingValues([].concat(fallback, fromMaps, fromRecords));
   }
 
   function strictItemForCoding(codeValue) {
@@ -180,10 +221,10 @@
   }
 
   function findPlannerCodingMatch(query) {
-    const normalizedQuery = normalizeText(query);
+    const normalizedQuery = normalizeCodingKey(query);
     if (!normalizedQuery) return "";
     const options = getPlannerCodingOptions();
-    const exactMatch = options.find((coding) => normalizeText(coding) === normalizedQuery);
+    const exactMatch = options.find((coding) => normalizeCodingKey(coding) === normalizedQuery);
     if (exactMatch) return exactMatch;
 
     const queryDigits = digitsOnly(query);
@@ -198,9 +239,9 @@
       if (digitMatches.length === 1) return digitMatches[0];
     }
 
-    const matches = options.filter((coding) => normalizeText(coding).includes(normalizedQuery));
+    const matches = options.filter((coding) => normalizeCodingKey(coding).includes(normalizedQuery));
     if (matches.length === 1) return matches[0];
-    return matches.find((coding) => normalizeText(coding).endsWith(normalizedQuery)) || "";
+    return matches.find((coding) => normalizeCodingKey(coding).endsWith(normalizedQuery)) || "";
   }
 
   function compactText(value) {
@@ -677,6 +718,24 @@
     });
   }
 
+  const PLANNER_CODING_MAPPED_FIELDS = [
+    "item",
+    "subCategoryMapped",
+    "categoryIt",
+    "subCategory",
+    "newCategory",
+    "appCate",
+    "cate3",
+    "cate4"
+  ];
+
+  function clearPlannerMappedFields() {
+    if (!state.form) state.form = {};
+    PLANNER_CODING_MAPPED_FIELDS.forEach((key) => {
+      state.form[key] = "";
+    });
+  }
+
   function applyCodingProfileToAllocation(codeValue) {
     const normalizedCode = normalizeText(codeValue);
     if (!normalizedCode) return;
@@ -713,6 +772,36 @@
       "costCenterDepartment"
     ].forEach((key) => {
       if (!state.allocationControls[key] && learned[key]) state.allocationControls[key] = learned[key];
+    });
+  }
+
+  const ALLOCATION_CODING_MAPPED_FIELDS = [
+    "item",
+    "subCategoryMapped",
+    "categoryIt",
+    "subCategory",
+    "newCategory",
+    "appCate",
+    "cate3",
+    "cate4",
+    "costCenterDepartment"
+  ];
+
+  const ALLOCATION_ITEM_MAPPED_FIELDS = [
+    "item",
+    "subCategoryMapped",
+    "categoryIt",
+    "subCategory",
+    "newCategory",
+    "appCate",
+    "cate3",
+    "cate4"
+  ];
+
+  function clearAllocationMappedFields(fields) {
+    if (!state.allocationControls) state.allocationControls = {};
+    (fields || []).forEach((key) => {
+      state.allocationControls[key] = "";
     });
   }
 
@@ -1149,6 +1238,29 @@ function editRecord(id) {
     function appendSheet(name, rows) {
       const safe = Array.isArray(rows) && rows.length ? rows : [{ Message: "No data available for this sheet." }];
       const sheet = XLSX.utils.json_to_sheet(safe);
+      applyFinancialFormats(sheet, [
+        "currentFY",
+        "fyLastYear",
+        "le",
+        "newAmc",
+        "newProject",
+        "annualized",
+        "priceIncrease",
+        "newUnit",
+        "licenseIncrease",
+        "rest",
+        "total",
+        "budgetCurrentYear",
+        "budgetLastYear",
+        "differenceAmount",
+        "lyExpense",
+        "currentBudget",
+        "budgetIncrease",
+        "newExpansion",
+        "planned",
+        "used",
+        "remaining"
+      ]);
       XLSX.utils.book_append_sheet(workbook, sheet, name);
     }
 
@@ -1269,8 +1381,14 @@ function editRecord(id) {
     // Comparison tab data based on selected comparison filters.
     const comparisonFilters = state.comparisonFilters || {};
     const comparisonRows = records.filter((record) => {
-      if (comparisonFilters.financialYear && String(record.financialYear || "") !== String(comparisonFilters.financialYear)) return false;
-      if (comparisonFilters.coding && normalizeText(record.coding) !== normalizeText(comparisonFilters.coding)) return false;
+      if (
+        comparisonFilters.financialYear &&
+        comparisonFilters.financialYear !== "All" &&
+        String(record.financialYear || "") !== String(comparisonFilters.financialYear)
+      )
+        return false;
+      if (comparisonFilters.coding && comparisonFilters.coding !== "All" && normalizeText(record.coding) !== normalizeText(comparisonFilters.coding))
+        return false;
       if (comparisonFilters.location1 && comparisonFilters.location2) {
         const n1 = normalizeText(comparisonFilters.location1);
         const n2 = normalizeText(comparisonFilters.location2);
@@ -1299,6 +1417,12 @@ function editRecord(id) {
 
   function setPlannerField(key, value) {
     if (key === "coding") {
+      if (!String(value || "").trim()) {
+        state.form.coding = "";
+        clearPlannerMappedFields();
+        syncPlannerHistoricalValues("coding");
+        return;
+      }
       const matchedCoding = findPlannerCodingMatch(value);
       const resolvedCoding = matchedCoding || value;
       state.form.coding = resolvedCoding;
@@ -1320,6 +1444,13 @@ function editRecord(id) {
       return;
     }
     if (key === "item") {
+      if (!String(value || "").trim()) {
+        state.form.item = "";
+        state.form.coding = "";
+        clearPlannerMappedFields();
+        syncPlannerHistoricalValues("coding");
+        return;
+      }
       const matchedCoding = findPlannerCodingByItemMatch(value);
       if (matchedCoding && normalizeText(matchedCoding) !== normalizeText(state.form.coding)) {
         state.form.coding = matchedCoding;
@@ -1335,11 +1466,11 @@ function editRecord(id) {
   }
 
   function setDashboardFilter(key, value) {
-    state.dashboardFilters[key] = value || "All";
+    state.dashboardFilters[key] = value || "";
   }
 
   function setSummaryFilter(key, value) {
-    state.summaryFilters[key] = value || "All";
+    state.summaryFilters[key] = value || "";
   }
 
   function setComparisonFilter(key, value) {
@@ -1660,7 +1791,8 @@ function render() {
       let totalBudget = locations.reduce((sum, location) => {
         const baseValue = Math.max(0, num(base[location]));
         const hasDraftValue = Object.prototype.hasOwnProperty.call(draft, location);
-        const draftValue = Math.max(0, hasDraftValue && Number.isFinite(Number(draft[location])) ? Number(draft[location]) : baseValue);
+        const parsedDraftValue = num(draft[location]);
+        const draftValue = Math.max(0, hasDraftValue && Number.isFinite(parsedDraftValue) ? parsedDraftValue : baseValue);
         locationAmounts[location] = draftValue;
         if (hasDraftValue && allocationRoundedValue(draftValue) !== allocationRoundedValue(baseValue)) {
           editedLocations.push(location);
@@ -1826,9 +1958,8 @@ function render() {
         state.allocationDb = Object.values(dbMap);
         saveAllocationDb();
         upsertAllocationDbToServer(state.allocationDb).catch((error) => console.error("Allocation server sync failed:", error));
-        state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${batchTotal.toLocaleString(
-          "en-IN",
-          { maximumFractionDigits: 2 }
+        state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${fmt(
+          batchTotal
         )}.`;
       } else {
         state.allocationSubmitMessage = `Submit blocked: coding=${codings.length ? codings.join(", ") : "missing"}, owner=${owner || "missing"}, year=${
@@ -1896,7 +2027,7 @@ function render() {
 
     if (id.startsWith("plannerSaved-")) {
       const key = id.replace("plannerSaved-", "");
-      const nextValue = value && value !== "All" ? value : "All";
+      const nextValue = value || "";
       state.plannerSavedFilters = Object.assign({}, state.plannerSavedFilters || {}, { [key]: nextValue });
       render();
       return;
@@ -1963,6 +2094,12 @@ function render() {
     }
 
     if (id === "allocation-coding") {
+      if (!String(value || "").trim()) {
+        setAllocationControl("coding", "");
+        clearAllocationMappedFields(ALLOCATION_CODING_MAPPED_FIELDS);
+        render();
+        return;
+      }
       const matchedCoding = findPlannerCodingMatch(value);
       const nextCoding = matchedCoding || value;
       setAllocationControl("coding", nextCoding);
@@ -1974,6 +2111,11 @@ function render() {
     }
 
     if (id === "allocation-item") {
+      if (!String(value || "").trim()) {
+        clearAllocationMappedFields(ALLOCATION_ITEM_MAPPED_FIELDS);
+        render();
+        return;
+      }
       setAllocationControl("item", value);
       const matchedCoding = findPlannerCodingByItemMatch(value);
       if (matchedCoding) {
@@ -1992,6 +2134,12 @@ function render() {
       return;
     }
 
+    if (id.startsWith("unitBudget-")) {
+      const key = id.replace("unitBudget-", "");
+      if (ui.setUnitBudgetFilter) ui.setUnitBudgetFilter(key, value);
+      return;
+    }
+
     if (id === "allocation-amount") {
       setAllocationControl("amount", value);
       render();
@@ -1999,25 +2147,25 @@ function render() {
     }
 
     if (id === "allocation-matrix-location") {
-      const next = value && value !== "All" ? value : "";
+      const next = value || "";
       state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { location: next });
       render();
       return;
     }
     if (id === "allocation-matrix-coding") {
-      const next = value && value !== "All" ? value : "";
+      const next = value || "";
       state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { coding: next });
       render();
       return;
     }
     if (id === "allocation-matrix-financialYear") {
-      const next = value && value !== "All" ? value : "";
+      const next = value || "";
       state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { financialYear: next });
       render();
       return;
     }
     if (id === "allocation-matrix-owner") {
-      const next = value && value !== "All" ? value : "";
+      const next = value || "";
       state.allocationMatrixFilters = Object.assign({}, state.allocationMatrixFilters || {}, { owner: next });
       render();
       return;
@@ -2055,7 +2203,7 @@ function render() {
       state.allocationEditDraft[location] = target.value;
 
       const baseValue = Math.max(0, num(state.allocationEditBase ? state.allocationEditBase[location] : 0));
-      const typedValue = Number(target.value);
+      const typedValue = num(target.value);
       const nextValue = Number.isFinite(typedValue) ? Math.max(0, typedValue) : 0;
       const changed = allocationRoundedValue(nextValue) !== allocationRoundedValue(baseValue);
       target.classList.toggle("is-edited", changed);
@@ -2072,6 +2220,13 @@ function render() {
     }
 
     if (target.id === "allocation-coding" && target.classList.contains("combo-input") && "value" in target) {
+      if (!String(target.value || "").trim()) {
+        state.allocationControls.coding = "";
+        state.allocationControls.codings = [];
+        clearAllocationMappedFields(ALLOCATION_CODING_MAPPED_FIELDS);
+        render();
+        return;
+      }
       const matchedCoding = findPlannerCodingMatch(target.value);
       const nextCoding = matchedCoding || target.value;
       const previousCoding = state.allocationControls && state.allocationControls.coding ? state.allocationControls.coding : "";
@@ -2126,6 +2281,12 @@ function render() {
           render();
         }
       }
+      return;
+    }
+
+    if (target.id === "allocation-item" && target.classList.contains("combo-input") && "value" in target && !String(target.value || "").trim()) {
+      clearAllocationMappedFields(ALLOCATION_ITEM_MAPPED_FIELDS);
+      render();
       return;
     }
 

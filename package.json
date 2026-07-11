@@ -4,7 +4,10 @@
   "private": true,
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test:formatting": "node tests/financial-formatting.test.js",
+    "test:planner-ui": "node tests/planner-coding-ui.test.js",
+    "test:clearable-fields": "node tests/clearable-fields.test.js"
   },
   "dependencies": {
     "cors": "^2.8.6",

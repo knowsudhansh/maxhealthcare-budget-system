@@ -2,6 +2,8 @@
   const data = window.OpexData || {};
   const state = data.state || (data.state = {});
   const h = data.helpers || {};
+  const utils = window.OpexUtils || {};
+  const EXCEL_FINANCIAL_FORMAT = utils.EXCEL_FINANCIAL_FORMAT || "#,##,##0.##";
 
   const VIEW_HOSTS = {
     dashboardView: "dashboardContent",
@@ -78,13 +80,14 @@
   }
 
   function num(value) {
-    const parsed = Number(value);
+    if (utils.parseFinancialAmount) return utils.parseFinancialAmount(value);
+    const parsed = Number(String(value ?? "").replace(/,/g, ""));
     return Number.isFinite(parsed) ? parsed : 0;
   }
 
   function fmt(value) {
-    const parsed = num(value);
-    return parsed.toLocaleString("en-IN", {
+    if (utils.formatFinancialAmount) return utils.formatFinancialAmount(value, { maximumFractionDigits: 2 });
+    return num(value).toLocaleString("en-IN", {
       minimumFractionDigits: 0,
       maximumFractionDigits: 2
     });
@@ -105,6 +108,18 @@
 
   function uniq(values) {
     return Array.from(new Set((values || []).filter(Boolean)));
+  }
+
+  function uniqueCodingValues(values) {
+    if (utils.uniqueCodingValues) return utils.uniqueCodingValues(values);
+    const byKey = new Map();
+    (values || []).forEach((value) => {
+      const candidate = String(value || "").trim();
+      const key = candidate.toUpperCase();
+      if (!key) return;
+      if (!byKey.has(key) || candidate === key) byKey.set(key, candidate);
+    });
+    return Array.from(byKey.values());
   }
 
   function prevYear(financialYear) {
@@ -178,6 +193,16 @@
         .concat(["30SUP020", "30SUP056", "30SUP066"])
     };
 
+    if (key === "coding") {
+      options.push.apply(options, (data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || []);
+      options.push.apply(options, Object.keys(data.CODE_ITEM_MAP || {}));
+      options.push.apply(options, Object.keys(profileMap));
+      records.forEach((record) => {
+        if (record && record.coding) options.push(record.coding);
+      });
+      return uniqueCodingValues(options).sort((a, b) => String(a).localeCompare(String(b)));
+    }
+
     records.forEach((record) => {
       if (record && record[key]) options.push(record[key]);
     });
@@ -186,11 +211,6 @@
       const profile = profileMap[code] || {};
       if (profile[key]) options.push(profile[key]);
     });
-
-    if (key === "coding") {
-      options.push.apply(options, Object.keys(data.CODE_ITEM_MAP || {}));
-      options.push.apply(options, Object.keys(profileMap));
-    }
 
     if (fallbackSources[key]) {
       options.push.apply(options, fallbackSources[key]);
@@ -283,8 +303,12 @@
     `;
   }
 
-  function searchCard(id, label, value, options, placeholder, isLocked) {
-    const rawValues = uniq([].concat(options || [], value || []).filter(Boolean));
+  function searchCard(id, label, value, options, placeholder, isLocked, allowClear) {
+    const isCodingField = id === "planner-coding";
+    const clearable = allowClear !== false;
+    const rawValues = isCodingField
+      ? uniqueCodingValues([].concat(options || [], value || []).filter(Boolean))
+      : uniq([].concat(options || [], value || []).filter(Boolean));
     const values = rawValues
       .filter((option) => normalizeText(option) === "all")
       .concat(rawValues.filter((option) => normalizeText(option) !== "all"));
@@ -306,12 +330,19 @@
       <div class="combo" data-combo-id="${esc(id)}">
         <input
           id="${esc(id)}"
-          class="input-control combo-input"
+          class="input-control combo-input${clearable ? " combo-input-clearable" : ""}"
           type="text"
           value="${esc(value || "")}"
           placeholder="${esc(placeholder || "")}"
           autocomplete="off"
         />
+        ${
+          clearable
+            ? `<button type="button" class="combo-clear" data-combo-clear="${esc(id)}" aria-label="Clear ${esc(label)}" title="Clear" ${
+                value && !isDefaultSelectValue(value) ? "" : "hidden"
+              }>×</button>`
+            : ""
+        }
         <button type="button" class="combo-toggle" data-combo-toggle="${esc(id)}" aria-label="Toggle ${esc(label)} options">v</button>
         <div class="combo-menu" data-combo-menu="${esc(id)}">
           ${values.length
@@ -384,18 +415,45 @@
     return fieldCard(label, control, " allocation-coding-card");
   }
 
-  function selectCard(id, label, value, options, placeholder) {
-    const values = uniq(options);
+  function shouldShowClear(value, config) {
+    if (utils.shouldShowClearButton) {
+      return utils.shouldShowClearButton(Object.assign({ value, emptyValue: "" }, config || {}));
+    }
+    return value !== null && value !== undefined && String(value).trim() !== "";
+  }
+
+  function isDefaultSelectValue(value) {
+    return !shouldShowClear(value);
+  }
+
+  function isAllValue(value) {
+    return normalizeText(value) === "all" || normalizeText(value) === "*";
+  }
+
+  function selectCard(id, label, value, options, placeholder, allowClear) {
+    const hasAllPlaceholder = normalizeText(placeholder) === "all" || normalizeText(placeholder) === "all years";
+    const values = uniq((hasAllPlaceholder ? ["All"] : []).concat(options || []));
+    const clearable = allowClear !== false && shouldShowClear(value || "");
+    const placeholderLabel = hasAllPlaceholder ? `Select ${label}` : placeholder || `Select ${label}`;
     const control = `
-      <select id="${esc(id)}" class="input-control">
-        <option value="">${esc(placeholder || `Select ${label}`)}</option>
-        ${values
-          .map((option) => {
-            const selected = String(option) === String(value || "") ? "selected" : "";
-            return `<option value="${esc(option)}" ${selected}>${esc(option)}</option>`;
-          })
-          .join("")}
-      </select>
+      <div class="select-clear-wrap" data-select-clear-id="${esc(id)}">
+        <select id="${esc(id)}" class="input-control select-clear-control">
+          <option value="">${esc(placeholderLabel)}</option>
+          ${values
+            .map((option) => {
+              const selected = String(option) === String(value || "") ? "selected" : "";
+              return `<option value="${esc(option)}" ${selected}>${esc(option)}</option>`;
+            })
+            .join("")}
+        </select>
+        ${
+          allowClear !== false
+            ? `<button type="button" class="combo-clear select-clear" data-select-clear="${esc(id)}" aria-label="Clear ${esc(label)}" title="Clear" ${
+                clearable ? "" : "hidden"
+              }>×</button>`
+            : ""
+        }
+      </div>
     `;
     return fieldCard(label, control);
   }
@@ -924,6 +982,23 @@
 
   function allocationRoundedValue(value) {
     return Math.round(num(value) * 100) / 100;
+  }
+
+  function applyFinancialFormats(sheet, moneyKeys) {
+    if (!sheet || !sheet["!ref"] || !window.XLSX || !window.XLSX.utils) return;
+    const range = window.XLSX.utils.decode_range(sheet["!ref"]);
+    const keys = new Set(moneyKeys || []);
+    for (let col = range.s.c; col <= range.e.c; col += 1) {
+      const headerCell = sheet[window.XLSX.utils.encode_cell({ r: range.s.r, c: col })];
+      const header = headerCell ? String(headerCell.v || "") : "";
+      if (!keys.has(header)) continue;
+      for (let row = range.s.r + 1; row <= range.e.r; row += 1) {
+        const cellRef = window.XLSX.utils.encode_cell({ r: row, c: col });
+        const cell = sheet[cellRef];
+        if (!cell || typeof cell.v !== "number") continue;
+        cell.z = EXCEL_FINANCIAL_FORMAT;
+      }
+    }
   }
 
   function isAllocationDistributionMode(mode) {
@@ -1713,15 +1788,9 @@
     const categoryOptions = optionValuesForKey("categoryIt");
     const yearOptions = optionValuesForKey("financialYear");
     const ownerOptions = optionValuesForKey("owner");
-    const codingOptionMap = {};
-    []
-      .concat(getRecords().map((record) => record.coding), (data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"))
-      .filter(Boolean)
-      .forEach((coding) => {
-        const key = normalizeText(coding);
-        if (key && !codingOptionMap[key]) codingOptionMap[key] = coding;
-      });
-    const codingOptions = Object.values(codingOptionMap).sort((left, right) => String(left).localeCompare(String(right)));
+    const codingOptions = uniqueCodingValues(
+      [].concat((data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"), getRecords().map((record) => record.coding))
+    ).sort((left, right) => String(left).localeCompare(String(right)));
 
     const locationGroups = groupedRows(records, "location");
     const categoryGroups = groupedRows(records, "categoryIt");
@@ -1920,7 +1989,7 @@
 
     const plannerCards = fields
       .map(([key, label, placeholder]) =>
-        searchCard(`planner-${key}`, label, form[key] || "", optionValuesForKey(key), placeholder, locked.has(key))
+        searchCard(`planner-${key}`, label, form[key] || "", optionValuesForKey(key), placeholder, locked.has(key), true)
       )
       .join("");
 
@@ -2273,8 +2342,8 @@
   function renderUnitBudget() {
     const filters = state.unitBudgetFilters || {};
     const filteredRecords = getRecords().filter((record) => {
-      if (filters.location && record.location !== filters.location) return false;
-      if (filters.financialYear && record.financialYear !== filters.financialYear) return false;
+      if (filters.location && !isAllValue(filters.location) && record.location !== filters.location) return false;
+      if (filters.financialYear && !isAllValue(filters.financialYear) && record.financialYear !== filters.financialYear) return false;
       return true;
     });
 
@@ -2319,32 +2388,14 @@
       </tr>
     `;
 
-    const locationFilter = `
-      <div class="field-card">
-        <div class="field-label">Select Location</div>
-        <select id="unitBudget-location" class="input-control" onchange="window.OpexUI.setUnitBudgetFilter('location', this.value)">
-          <option value="">All</option>
-          ${getAllLocations()
-            .map((option) => `<option value="${esc(option)}" ${String(option) === String(filters.location || "") ? "selected" : ""}>${esc(option)}</option>`)
-            .join("")}
-        </select>
-      </div>
-    `;
-
-    const yearFilter = `
-      <div class="field-card">
-        <div class="field-label">Select Year</div>
-        <select id="unitBudget-financialYear" class="input-control" onchange="window.OpexUI.setUnitBudgetFilter('financialYear', this.value)">
-          <option value="">All</option>
-          ${optionValuesForKey("financialYear")
-            .map(
-              (option) =>
-                `<option value="${esc(option)}" ${String(option) === String(filters.financialYear || "") ? "selected" : ""}>${esc(option)}</option>`
-            )
-            .join("")}
-        </select>
-      </div>
-    `;
+    const locationFilter = selectCard("unitBudget-location", "Select Location", filters.location || "", getAllLocations(), "All");
+    const yearFilter = selectCard(
+      "unitBudget-financialYear",
+      "Select Year",
+      filters.financialYear || "",
+      optionValuesForKey("financialYear"),
+      "All"
+    );
 
     return `
       <section class="card">
@@ -2384,10 +2435,14 @@
     const selectedLocations = showLocationSelector && Array.isArray(controls.locations) ? controls.locations : [];
     const selectedCodingSet = getAllocationSelectedCodingSet();
     const matrixFilters = state.allocationMatrixFilters || {};
-    const matrixLocation = String(matrixFilters.location || "");
-    const matrixCoding = String(matrixFilters.coding || "");
-    const matrixYear = String(matrixFilters.financialYear || "");
-    const matrixOwner = String(matrixFilters.owner || "");
+    const matrixLocationRaw = String(matrixFilters.location || "");
+    const matrixCodingRaw = String(matrixFilters.coding || "");
+    const matrixYearRaw = String(matrixFilters.financialYear || "");
+    const matrixOwnerRaw = String(matrixFilters.owner || "");
+    const matrixLocation = isAllValue(matrixLocationRaw) ? "" : matrixLocationRaw;
+    const matrixCoding = isAllValue(matrixCodingRaw) ? "" : matrixCodingRaw;
+    const matrixYear = isAllValue(matrixYearRaw) ? "" : matrixYearRaw;
+    const matrixOwner = isAllValue(matrixOwnerRaw) ? "" : matrixOwnerRaw;
     const ownerOptions = optionValuesForKey("owner");
     const selectedOwner = String(controls.owner || "");
     const yearOptions = optionValuesForKey("financialYear");
@@ -2397,15 +2452,9 @@
     const appliedEntries = getAppliedAllocationEntries();
     const hasAppliedDistribution = appliedEntries.length > 0;
     const locations = getAllLocations();
-    const codingOptionMap = {};
-    []
-      .concat(getRecords().map((record) => record.coding), (data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"))
-      .filter(Boolean)
-      .forEach((coding) => {
-        const key = normalizeText(coding);
-        if (key && !codingOptionMap[key]) codingOptionMap[key] = coding;
-      });
-    const codingOptions = Object.values(codingOptionMap).sort((left, right) => String(left).localeCompare(String(right)));
+    const codingOptions = uniqueCodingValues(
+      [].concat((data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"), getRecords().map((record) => record.coding))
+    ).sort((left, right) => String(left).localeCompare(String(right)));
     const allocationContext = getAllocationBudgetContext(getRecords(), appliedEntries);
     const effectiveRecords = allocationContext.records;
     const matrixRowsFromServer = Array.isArray(state.allocationMatrixRows) ? state.allocationMatrixRows : null;
@@ -2754,10 +2803,10 @@
           </div>
         </div>
         <div class="filter-grid">
-          ${selectCard("allocation-matrix-location", "Location", matrixLocation, locations, "All")}
-          ${selectCard("allocation-matrix-coding", "Coding", matrixCoding, codingOptions, "All")}
-          ${selectCard("allocation-matrix-financialYear", "Financial Year", matrixYear, yearOptions, "All")}
-          ${selectCard("allocation-matrix-owner", "Owner", matrixOwner, ownerOptions, "All")}
+          ${selectCard("allocation-matrix-location", "Location", matrixLocationRaw, locations, "All")}
+          ${selectCard("allocation-matrix-coding", "Coding", matrixCodingRaw, codingOptions, "All")}
+          ${selectCard("allocation-matrix-financialYear", "Financial Year", matrixYearRaw, yearOptions, "All")}
+          ${selectCard("allocation-matrix-owner", "Owner", matrixOwnerRaw, ownerOptions, "All")}
         </div>
       </section>
     `;
@@ -2771,7 +2820,7 @@
           </div>
         </div>
         <div class="control-grid">
-          ${selectCard("allocation-mode", "Cost Distribution", "Distribution", ["Distribution"], "Select mode")}
+          ${selectCard("allocation-mode", "Cost Distribution", "Distribution", ["Distribution"], "Select mode", false)}
           ${
             isDistributionMode
               ? searchCard(
@@ -2957,8 +3006,8 @@
   function matchesComparisonFilters(record, filters, includeYear) {
     const codingFilter = String((filters && filters.coding) || "").trim();
     const yearFilter = String((filters && filters.financialYear) || "").trim();
-    if (codingFilter && normalizeText(record && record.coding) !== normalizeText(codingFilter)) return false;
-    if (includeYear && yearFilter && String((record && record.financialYear) || "") !== yearFilter) return false;
+    if (codingFilter && !isAllValue(codingFilter) && normalizeText(record && record.coding) !== normalizeText(codingFilter)) return false;
+    if (includeYear && yearFilter && !isAllValue(yearFilter) && String((record && record.financialYear) || "") !== yearFilter) return false;
     return true;
   }
 
@@ -3447,15 +3496,9 @@
   function renderComparison() {
     const filters = state.comparisonFilters || {};
     const locationOptions = getAllLocations();
-    const codingOptionMap = {};
-    []
-      .concat(getRecords().map((record) => record.coding), (data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"))
-      .filter(Boolean)
-      .forEach((coding) => {
-        const key = normalizeText(coding);
-        if (key && !codingOptionMap[key]) codingOptionMap[key] = coding;
-      });
-    const codingOptions = Object.values(codingOptionMap).sort((left, right) => String(left).localeCompare(String(right)));
+    const codingOptions = uniqueCodingValues(
+      [].concat((data.FALLBACK_OPTIONS && data.FALLBACK_OPTIONS.coding) || [], optionValuesForKey("coding"), getRecords().map((record) => record.coding))
+    ).sort((left, right) => String(left).localeCompare(String(right)));
     const yearOptions = optionValuesForKey("financialYear");
     const location1 = filters.location1 || "";
     const location2 = filters.location2 || "";
@@ -3718,6 +3761,20 @@
     if (subtitle) subtitle.textContent = activeMeta[1] || "";
     if (sidebarStatus) sidebarStatus.textContent = activeMeta[0] || "Ready";
     if (footerViewName) footerViewName.textContent = activeMeta[0] || "Dashboard";
+
+    if (state.pendingComboOpen) {
+      const comboId = state.pendingComboOpen;
+      state.pendingComboOpen = "";
+      window.requestAnimationFrame(() => {
+        const combo = document.querySelector(`.combo[data-combo-id="${comboId}"]`);
+        const input = document.getElementById(comboId);
+        if (!combo || !input) return;
+        closeAllCombos(comboId);
+        combo.classList.add("open");
+        filterCombo(combo, "");
+        input.focus();
+      });
+    }
   }
 
   function closeAllCombos(exceptId) {
@@ -3746,6 +3803,47 @@
   }
 
   document.addEventListener("mousedown", function (event) {
+    const selectClearButton = event.target.closest(".select-clear");
+    if (selectClearButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const selectId = selectClearButton.getAttribute("data-select-clear");
+      const select = document.getElementById(selectId);
+      if (select && "value" in select) {
+        select.value = "";
+        selectClearButton.hidden = true;
+        select.dispatchEvent(new Event("change", { bubbles: true }));
+        window.requestAnimationFrame(() => {
+          select.focus();
+        });
+      }
+      return;
+    }
+
+    const clearButton = event.target.closest(".combo-clear");
+    if (clearButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const inputId = clearButton.getAttribute("data-combo-clear");
+      const input = document.getElementById(inputId);
+      const combo = clearButton.closest(".combo");
+      if (input && "value" in input) {
+        input.value = "";
+        state.pendingComboOpen = inputId;
+        clearButton.hidden = true;
+        if (combo) {
+          combo.classList.add("open");
+          closeAllCombos(combo.getAttribute("data-combo-id"));
+          filterCombo(combo, "");
+        }
+        input.dispatchEvent(new Event("change", { bubbles: true }));
+        window.requestAnimationFrame(() => {
+          input.focus();
+        });
+      }
+      return;
+    }
+
     const multiOption = event.target.closest(".multi-combo-option");
     if (multiOption && !event.target.closest("input")) {
       event.preventDefault();
@@ -3800,9 +3898,19 @@
     if (!input) return;
     const combo = input.closest(".combo");
     if (!combo) return;
+    const clearButton = combo.querySelector(".combo-clear");
+    if (clearButton) clearButton.hidden = !shouldShowClear(input.value || "");
     combo.classList.add("open");
     closeAllCombos(combo.getAttribute("data-combo-id"));
     filterCombo(combo, input.value || "");
+  });
+
+  document.addEventListener("change", function (event) {
+    const select = event.target && event.target.closest ? event.target.closest(".select-clear-control") : null;
+    if (!select) return;
+    const wrapper = select.closest(".select-clear-wrap");
+    const clearButton = wrapper ? wrapper.querySelector(".select-clear") : null;
+    if (clearButton) clearButton.hidden = !shouldShowClear(select.value || "");
   });
 
   document.addEventListener("focusin", function (event) {
@@ -3983,6 +4091,15 @@
     function appendSheet(name, rows) {
       const safeRows = (rows || []).length ? rows : [{ Message: "No data for current filters" }];
       const sheet = window.XLSX.utils.json_to_sheet(safeRows);
+      applyFinancialFormats(sheet, [
+        "lastYearBudget",
+        "currentYearBudget",
+        "remainingBudget",
+        "currentBudget",
+        "usedBudget",
+        "le",
+        "budget"
+      ]);
       window.XLSX.utils.book_append_sheet(workbook, sheet, name);
     }
 
@@ -4239,6 +4356,7 @@
     const rows = exportRows.length ? exportRows : [{ Message: "No rows for selected matrix filters." }];
     const filterWs = window.XLSX.utils.json_to_sheet(filterSheet);
     const matrixWs = window.XLSX.utils.json_to_sheet(rows);
+    applyFinancialFormats(matrixWs, ["totalBudget"].concat(locations));
     window.XLSX.utils.book_append_sheet(workbook, filterWs, "Matrix Filters");
     window.XLSX.utils.book_append_sheet(workbook, matrixWs, "Allocation Matrix");
 
@@ -4362,6 +4480,7 @@
 
     const filterWs = window.XLSX.utils.json_to_sheet(filterSheet);
     const dataWs = window.XLSX.utils.json_to_sheet(dataSheet);
+    applyFinancialFormats(dataWs, ["currentFY", "fyLastYear", "le"]);
     window.XLSX.utils.book_append_sheet(workbook, filterWs, "Saved Records Filters");
     window.XLSX.utils.book_append_sheet(workbook, dataWs, "Saved Records");
 

@@ -1929,6 +1929,55 @@ details.multi-select summary::-webkit-details-marker {
   padding-right: 44px;
 }
 
+.combo-input-clearable {
+  padding-right: 78px;
+}
+
+.combo-clear {
+  position: absolute;
+  top: 50%;
+  right: 42px;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border: 1px solid #b9d5f4;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #335d86;
+  font-size: 18px;
+  line-height: 1;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.combo-clear:hover,
+.combo-clear:focus {
+  border-color: #6ca9ef;
+  background: #eef7ff;
+  color: #083d76;
+  outline: none;
+}
+
+.combo-clear:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
+.combo-clear[hidden] {
+  display: none;
+}
+
+.select-clear-wrap {
+  position: relative;
+}
+
+.select-clear-control {
+  padding-right: 78px;
+}
+
+.select-clear {
+  right: 38px;
+}
+
 .combo-toggle {
   position: absolute;
   top: 50%;
