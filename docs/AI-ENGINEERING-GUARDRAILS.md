@@ -125,3 +125,11 @@ Before major changes:
 - Do not activate optimistic locking until `record_version` migration is applied.
 - Do not enable audit persistence until `audit_logs` migration is applied.
 - Existing formulas changed: No.
+
+## Phase 3.2A Containerization Guardrails
+
+- Docker packaging must not copy `.env`, local app data, service-account JSON, logs, or `node_modules` into the image.
+- The container must run as a non-root user.
+- Container health checks should use `/health/ready`.
+- Containerization must not change formulas, API field meanings, database schema, or persistence behavior.
+- Do not push images or provision AWS resources in Phase 3.2A.

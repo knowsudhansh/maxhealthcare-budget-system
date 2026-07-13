@@ -73,3 +73,12 @@
 - Added focused Phase 3.2 tests.
 - Existing formulas changed: No.
 - Database schema applied remotely: No.
+
+### Phase 3.2A Docker Containerization
+
+- Added Dockerfile for production-style Node runtime packaging.
+- Added `.dockerignore` to exclude secrets, local app data, logs, and dependencies from the build context.
+- Added `docker-compose.example.yml` for local container trials.
+- Added lightweight Docker packaging checks.
+- Existing formulas changed: No.
+- Remote AWS resources modified: No.

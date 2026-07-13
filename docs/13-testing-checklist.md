@@ -210,3 +210,25 @@ npm run test:formatting
 npm run test:planner-ui
 npm run test:clearable-fields
 ```
+
+## Phase 3.2A Docker Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:docker
+```
+
+Coverage includes:
+
+- Dockerfile uses production dependency install.
+- Runtime image runs as non-root.
+- Health check uses `/health/ready`.
+- Local app data and secret files are excluded by `.dockerignore`.
+- Example compose file does not include real credentials.
+
+Optional manual check when Docker is installed:
+
+```bash
+docker build -t max-it-opex-budget-app:local .
+```

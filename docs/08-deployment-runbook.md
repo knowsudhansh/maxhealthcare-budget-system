@@ -19,6 +19,46 @@ http://localhost:3001
 
 or open `index.html` directly, but backend API calls still need the server running.
 
+## Docker Local Run
+
+Phase 3.2A adds container packaging only. It does not provision AWS resources or modify any database.
+
+Build the image:
+
+```powershell
+docker build -t max-it-opex-budget-app:local .
+```
+
+Run with an existing local `.env`:
+
+```powershell
+docker run --rm `
+  --env-file .env `
+  -e PORT=3000 `
+  -e APP_ENV=development `
+  -e ALLOWED_ORIGINS=http://localhost:3001,http://127.0.0.1:3001 `
+  -p 3001:3000 `
+  -v "budget-app-data:/app/Server data" `
+  max-it-opex-budget-app:local
+```
+
+Or use the example compose file:
+
+```powershell
+docker compose -f docker-compose.example.yml up --build
+```
+
+The image:
+
+- uses `node:22-alpine`,
+- installs production dependencies with `npm ci --omit=dev`,
+- runs as the non-root `node` user,
+- exposes port `3000`,
+- uses `/health/ready` as the container health check,
+- keeps `.env`, Google service-account files, logs, `node_modules`, and local `Server data` out of the build context.
+
+The compose file disables Excel and Google Sheets mirrors by default for local container trials. UAT/Production values should come from the environment or AWS runtime configuration, not from committed files.
+
 ## Current Health Check
 
 ```text
@@ -70,6 +110,7 @@ A bounded timeout prevents shutdown from hanging indefinitely.
 - CloudWatch logs.
 
 Phase 3.1 prepares the application for this target but does not provision AWS resources.
+Phase 3.2A prepares a Docker image for a future AWS container runtime but does not push images or create AWS infrastructure.
 
 ## Production Target
 
@@ -85,10 +126,8 @@ Phase 3.1 prepares the application for this target but does not provision AWS re
 ## Current Deployment Blockers
 
 - No migrations.
-- No centralized logging or request IDs.
-- No production-safe error handler.
 - No authentication or RBAC.
-- No transaction wrapper for allocation operations.
+- Container image has not yet been deployed to UAT.
 
 ## Rollback Guidance
 

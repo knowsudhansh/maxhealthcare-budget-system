@@ -1,0 +1,39 @@
+services:
+  budget-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      secrets:
+        - corp_ca
+
+    image: max-it-opex-budget-app:local
+
+    ports:
+      - "3001:3000"
+
+    env_file:
+      - .env
+
+    environment:
+      PORT: "3000"
+      HOST: "0.0.0.0"
+      APP_ENV: development
+
+      MYSQL_HOST: host.docker.internal
+      DB_HOST: host.docker.internal
+
+      ALLOWED_ORIGINS: http://localhost:3001,http://127.0.0.1:3001
+      ENABLE_EXCEL_MIRROR: "false"
+      ENABLE_GOOGLE_SHEETS_SYNC: "false"
+
+    volumes:
+      - budget-app-data:/app/Server data
+
+    restart: unless-stopped
+
+volumes:
+  budget-app-data:
+
+secrets:
+  corp_ca:
+    file: ${CORP_CA_FILE}

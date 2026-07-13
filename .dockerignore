@@ -1,0 +1,16 @@
+.git
+.agents
+.vscode
+node_modules
+npm-debug.log*
+*.log
+.env
+.env.local
+.env.*.local
+key.env.txt
+google-service-account.json
+server data/
+Server data/
+backend/node_modules
+coverage
+.DS_Store
