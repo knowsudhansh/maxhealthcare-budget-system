@@ -55,6 +55,28 @@ Database credentials are loaded server-side only. The app must not log DB passwo
 
 Authentication, RBAC, and chatbot access controls are still not implemented.
 
+## Base-Path Runtime Config Security
+
+`/app-config.js` exposes only:
+
+```javascript
+window.APP_CONFIG = { basePath: "..." };
+```
+
+It must never expose database hosts, usernames, passwords, AWS secret ARNs, tokens, service-account data, cookies, or credentials.
+
+Static serving is restricted to approved frontend assets. `.env`, `node_modules`, migrations, tests, service-account files, certificates, keys, logs, and `Server data` must not be served as static files.
+
+## TiDB Demo Secret Handling
+
+TiDB credentials and CA files are local runtime inputs only.
+
+- Do not commit `.env`, `.env.docker`, TiDB passwords, or files under `certs/*.pem`, `certs/*.crt`, or `certs/*.cer`.
+- `DB_SSL=true` requires `DB_SSL_CA`.
+- TLS certificate verification must remain enabled with `rejectUnauthorized: true`.
+- Do not use `rejectUnauthorized: false`, `NODE_TLS_REJECT_UNAUTHORIZED=0`, or disabled npm TLS verification.
+- Health endpoints and verification scripts must not print passwords, usernames, CA contents, CA paths, or connection strings.
+
 ## Non-Negotiable Rule
 
 Do not implement authorization only by hiding UI buttons. Backend must enforce all future permissions.

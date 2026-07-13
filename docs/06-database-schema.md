@@ -61,3 +61,31 @@ Added proposal files only:
 These were not applied to UAT or Production.
 
 `record_version` is required before optimistic locking can be activated. `audit_logs` is required before audit persistence can be enabled.
+
+## TiDB Cloud Starter Demo Schema
+
+Phase TiDB demo preparation adds:
+
+```text
+migrations/008_tidb_demo_schema.sql
+```
+
+This script is idempotent and non-destructive. It uses only:
+
+- `CREATE TABLE IF NOT EXISTS`
+- `INSERT ... ON DUPLICATE KEY UPDATE` for the allocation percentage map
+
+It does not drop, clear, or overwrite existing planner data.
+
+Active tables required by the current application:
+
+- `budget_submissions`
+- `allocation_records`
+- `allocation_location_map`
+- `allocation_matrix`
+
+The TiDB demo schema follows the active `server.js` queries. Notably, `allocation_records.id` is numeric auto-increment because active delete routes parse IDs as positive integers and the active insert does not provide an ID.
+
+Do not apply optimistic-locking or audit-log proposal migrations to the TiDB demo unless explicitly requested.
+
+Temporary demo data is inserted by `scripts/seed-tidb-demo.js` into `budget_submissions` only. The approved seed rows are documented in `docs/18-tidb-demo-seed.md` and are identified by `TIDB_DEMO_SEED_V2`.

@@ -82,3 +82,33 @@
 - Added lightweight Docker packaging checks.
 - Existing formulas changed: No.
 - Remote AWS resources modified: No.
+
+### Base-Path Hosting Support
+
+- Added configurable `APP_BASE_PATH` normalization and validation.
+- Added `/app-config.js` safe frontend runtime config.
+- Added backend base-path routing so `/budget-app/*` reaches existing UI/API/health handlers.
+- Preserved unprefixed health endpoints for Docker and target-group health checks.
+- Added frontend URL helpers and moved API calls to centralized URL construction.
+- Restricted static serving to approved frontend assets.
+- Added focused base-path routing tests.
+- Existing formulas changed: No.
+
+### TiDB Cloud Starter Demo Preparation
+
+- Added `DB_SSL_CA` support for verified TLS connections through `mysql2`.
+- Added TiDB demo schema proposal in `migrations/008_tidb_demo_schema.sql`.
+- Added manual, idempotent TiDB demo seed script.
+- Added sanitized TiDB connection/schema verification script.
+- Added focused TiDB TLS/schema/seed safety tests.
+- Updated local development env example with TiDB placeholder values.
+- Existing formulas changed: No.
+
+### TiDB Demo Coding Data Correction
+
+- Replaced generated temporary demo seed rows with the 20 approved coding mappings.
+- Preserved the distinction between `owner1` business owner group and person-level `owner`.
+- Added marker-scoped V2 seed updates with old demo marker cleanup only.
+- Documented the approved amount/location strategy in `docs/18-tidb-demo-seed.md`.
+- Extended TiDB tests for approved codes, metadata, idempotency, Owner/Owner1 separation, and manual-row protection.
+- Existing formulas changed: No.

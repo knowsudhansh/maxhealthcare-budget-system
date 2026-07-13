@@ -232,3 +232,54 @@ Optional manual check when Docker is installed:
 ```bash
 docker build -t max-it-opex-budget-app:local .
 ```
+
+## Base-Path Routing Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:base-path
+```
+
+Coverage includes:
+
+- `APP_BASE_PATH` normalization and malformed path rejection.
+- Root-mode routes continue working.
+- `/budget-app` redirects to `/budget-app/`.
+- `/budget-app/` serves the UI.
+- `/budget-app/styles.css` serves CSS.
+- `/budget-app/app-config.js` exposes only safe config.
+- `/budget-app/api/budget-data` reaches the existing handler.
+- Prefixed and unprefixed health endpoints work.
+- `/budget-application` does not match `/budget-app`.
+- Query strings are preserved.
+- Frontend fetch calls use centralized API helpers.
+
+## TiDB Demo Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:tidb
+```
+
+Coverage includes:
+
+- `DB_SSL_CA` path resolution from project root.
+- Missing CA path validation.
+- TLS config includes `rejectUnauthorized: true`.
+- Missing CA file errors do not expose file paths or certificate contents.
+- TiDB-style environment validation.
+- Demo schema script contains no destructive table/data operations.
+- Demo seed has 20 records, uses numeric database values, prepared statements, and transaction flow.
+- Demo seed uses exactly the approved non-sequential coding list and does not generate fake `ITOPEX001` through `ITOPEX020` rows.
+- Demo seed preserves `owner1` as the business owner group and `owner` as a separate owner field.
+- Demo seed reruns update only rows carrying the `TIDB_DEMO_SEED_V2` marker and do not delete manual rows by coding alone.
+- Demo seed idempotency with mocked DB calls.
+- Sanitized health output does not expose TiDB host, password, or CA path.
+
+Optional manual verification when real local credentials and CA are present:
+
+```bash
+npm run verify:tidb
+```

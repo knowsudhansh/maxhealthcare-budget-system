@@ -6,6 +6,7 @@ Observed in `server.js`:
 
 - `PORT`
 - `APP_ENV`
+- `APP_BASE_PATH`
 - `FRONTEND_URL`
 - `ALLOWED_ORIGINS`
 - `AWS_REGION`
@@ -16,6 +17,7 @@ Observed in `server.js`:
 - `DB_USER`
 - `DB_PASSWORD`
 - `DB_SSL`
+- `DB_SSL_CA`
 - `DB_CONNECTION_LIMIT`
 - `DB_CONNECT_TIMEOUT_MS`
 - `LOG_LEVEL`
@@ -52,6 +54,7 @@ Suggested variables:
 ```env
 APP_ENV=
 PORT=
+APP_BASE_PATH=
 FRONTEND_URL=
 ALLOWED_ORIGINS=
 AWS_REGION=
@@ -62,6 +65,7 @@ DB_NAME=
 DB_USER=
 DB_PASSWORD=
 DB_SSL=
+DB_SSL_CA=
 DB_CONNECTION_LIMIT=
 DB_CONNECT_TIMEOUT_MS=
 LOG_LEVEL=
@@ -90,6 +94,58 @@ UAT and Production:
 - Must not mix UAT and Production secret names.
 
 `ENABLE_EXCEL_MIRROR` and `ENABLE_GOOGLE_SHEETS_SYNC` default to `true` to preserve current behavior unless explicitly disabled.
+
+## TiDB Cloud Starter Demo Configuration
+
+TiDB Cloud Starter is MySQL-compatible and uses the existing `mysql2/promise` database path.
+
+Temporary shared-demo local `.env` values should use environment variables only:
+
+```env
+APP_ENV=development
+PORT=3001
+DB_HOST=gateway01.ap-southeast-1.prod.aws.tidbcloud.com
+DB_PORT=4000
+DB_USER=<TIDB_USERNAME>
+DB_PASSWORD=<TIDB_PASSWORD>
+DB_NAME=budget_app
+DB_SSL=true
+DB_SSL_CA=./certs/tidb-ca.pem
+ALLOWED_ORIGINS=http://localhost:3001,http://127.0.0.1:3001
+ENABLE_EXCEL_MIRROR=false
+ENABLE_GOOGLE_SHEETS_SYNC=false
+```
+
+`DB_SSL_CA` is a filesystem path, not certificate contents. Relative paths are resolved from the project root. The CA file is read once during startup and passed to `mysql2` as verified TLS.
+
+Never commit `.env`, `.env.docker`, TiDB passwords, CA certificates, or secret files.
+
+## Base Path
+
+`APP_BASE_PATH` controls the public deployment prefix.
+
+Valid examples:
+
+- empty value -> root mode
+- `/` -> root mode
+- `budget-app` -> `/budget-app`
+- `/budget-app/` -> `/budget-app`
+
+Invalid values are rejected when they contain protocols, query strings, fragments, backslashes, traversal segments, or unsupported path characters.
+
+UAT and Production examples use:
+
+```env
+APP_BASE_PATH=/budget-app
+```
+
+The frontend receives only:
+
+```javascript
+window.APP_CONFIG = { basePath: "/budget-app" };
+```
+
+No database or AWS secrets are exposed through this endpoint.
 
 ## Secrets Manager Boundary
 

@@ -2,9 +2,23 @@
 
 Base URL is chosen in `app.js`:
 
-- Local/file UI: `http://localhost:3001`
-- Hosted UI: `https://maxhealthcare-budget-system-production.up.railway.app`
+- Local/file UI fallback: `http://localhost:3001`
+- Hosted UI: same-origin URLs built from `APP_BASE_PATH`
 - Optional override: `localStorage.API_BASE_OVERRIDE`
+
+## Base-Path Routing Boundary
+
+The public deployment prefix is configuration, not business logic.
+
+Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature module may hardcode `/budget-app`.
+
+When `APP_BASE_PATH=/budget-app`, existing API paths are available under the prefix, for example:
+
+- `/budget-app/api/budget-data`
+- `/budget-app/api/allocation-data`
+- `/budget-app/api/allocation-matrix`
+
+When `APP_BASE_PATH` is empty, root-mode paths continue unchanged.
 
 ## Endpoints
 
@@ -27,6 +41,7 @@ Base URL is chosen in `app.js`:
 | `GET` | `/api/health` | Health check. | none | `{ message, mysql }` |
 | `GET` | `/health/live` | Liveness check for load balancers/process managers. | none | `{ status: "alive" }` |
 | `GET` | `/health/ready` | Readiness check; verifies database connectivity. | none | `200 { status: "ready", database: "connected" }` or `503 { status: "not-ready", database: "unavailable" }` |
+| `GET` | `/app-config.js` | Safe frontend runtime configuration. | none | `window.APP_CONFIG = { basePath }` |
 
 ## Current Contract Risks
 
@@ -45,6 +60,13 @@ Base URL is chosen in `app.js`:
 `GET /health/live` confirms the Node process is alive.
 
 `GET /health/ready` confirms the singleton MySQL pool can run `SELECT 1`. Traffic should not be sent to the service until readiness succeeds.
+
+When `APP_BASE_PATH=/budget-app`, prefixed health compatibility routes also work:
+
+- `/budget-app/health/live`
+- `/budget-app/health/ready`
+
+Unprefixed `/health/live` and `/health/ready` remain available for Docker and target-group health checks.
 
 ## Phase 3.2 Error Response Standard
 

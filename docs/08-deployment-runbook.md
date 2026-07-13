@@ -45,7 +45,7 @@ docker run --rm `
 Or use the example compose file:
 
 ```powershell
-docker compose -f docker-compose.example.yml up --build
+docker compose -f compose.yaml up --build
 ```
 
 The image:
@@ -58,6 +58,19 @@ The image:
 - keeps `.env`, Google service-account files, logs, `node_modules`, and local `Server data` out of the build context.
 
 The compose file disables Excel and Google Sheets mirrors by default for local container trials. UAT/Production values should come from the environment or AWS runtime configuration, not from committed files.
+
+To test the public prefix locally:
+
+```powershell
+$env:APP_BASE_PATH="/budget-app"
+docker compose -f compose.yaml up --build
+```
+
+Then open:
+
+```text
+http://127.0.0.1:3001/budget-app/
+```
 
 ## Current Health Check
 
@@ -111,6 +124,79 @@ A bounded timeout prevents shutdown from hanging indefinitely.
 
 Phase 3.1 prepares the application for this target but does not provision AWS resources.
 Phase 3.2A prepares a Docker image for a future AWS container runtime but does not push images or create AWS infrastructure.
+
+## AWS ALB Path-Based Hosting
+
+Target public URL:
+
+```text
+https://<domain>/budget-app/
+```
+
+Application environment:
+
+```env
+APP_BASE_PATH=/budget-app
+```
+
+ALB listener rule:
+
+- Path conditions:
+  - `/budget-app`
+  - `/budget-app/*`
+- Action: forward to the budget-app target group.
+
+Target group:
+
+- Protocol: HTTP
+- Application port: `3000`
+- Health check path: `/health/ready`
+- Success code: `200`
+
+The ALB forwards the original request path. The application handles `APP_BASE_PATH`; the ALB should not strip or rewrite the prefix.
+
+## TiDB Cloud Starter Temporary Demo
+
+TiDB is supported only as a temporary shared demo database for the meeting. It is not final production database approval.
+
+1. Put TiDB credentials in local `.env` only.
+2. Put the CA file at `certs/tidb-ca.pem`.
+3. Verify `.env` and certificate files are ignored by Git.
+4. Apply `migrations/008_tidb_demo_schema.sql` manually to the `budget_app` database if required.
+5. Verify connectivity and schema:
+
+```powershell
+npm run verify:tidb
+```
+
+Expected safe output:
+
+```text
+TiDB connection: OK
+TLS verification: OK
+Database: budget_app
+Required schema: OK
+Planner records: <count>
+```
+
+Seed demo records only when explicitly needed:
+
+```powershell
+npm run seed:tidb-demo
+```
+
+The seed is manual, idempotent, transactional, and does not run during app startup. The current approved demo seed uses marker `TIDB_DEMO_SEED_V2` and exactly 20 coding values:
+
+```text
+ITOPEX005, ITOPEX007, ITOPEX008, ITOPEX009, ITOPEX011,
+ITOPEX013, ITOPEX014, ITOPEX015, ITOPEX018, ITOPEX023,
+ITOPEX024, ITOPEX029, ITOPEX032, ITOPEX033, ITOPEX034,
+ITOPEX035, ITOPEX036, ITOPEX037, ITOPEX038, ITOPEX042
+```
+
+The seed updates only rows carrying the V2 marker and removes only old deterministic demo rows carrying the old marker. It must not delete manually entered records based only on coding. See `docs/18-tidb-demo-seed.md` for the approved mapping, amount strategy, and Owner versus Owner1 boundary.
+
+TiDB Cloud Starter free-tier limits may throttle or pause the instance. Production migration requires separate review.
 
 ## Production Target
 

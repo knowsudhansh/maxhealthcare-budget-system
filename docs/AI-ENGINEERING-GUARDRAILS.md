@@ -133,3 +133,29 @@ Before major changes:
 - Container health checks should use `/health/ready`.
 - Containerization must not change formulas, API field meanings, database schema, or persistence behavior.
 - Do not push images or provision AWS resources in Phase 3.2A.
+
+## Base-Path Routing Guardrails
+
+The public deployment prefix is configuration, not business logic.
+
+Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature module may hardcode `/budget-app`.
+
+- Keep unprefixed `/health/live` and `/health/ready` for internal container and target-group checks.
+- Expose only safe frontend runtime configuration through `/app-config.js`.
+- Do not serve `.env`, `node_modules`, migrations, tests, service-account files, keys, certificates, logs, or `Server data`.
+- Base-path support must not change formulas, API field meanings, save/edit/delete semantics, or data.
+
+## TiDB Demo Guardrails
+
+- TiDB Cloud Starter may be used only as a temporary shared demo database unless separately approved for production.
+- Use environment variables for all TiDB connection settings.
+- Treat `DB_SSL_CA` as a local file path and never commit certificate files.
+- Keep TLS verification enabled; never use `rejectUnauthorized: false`.
+- Do not log credentials, connection strings, CA contents, CA file paths, or secret values.
+- Do not run demo seed automatically during startup.
+- Demo schema setup must be idempotent and non-destructive.
+- Demo Budget Planner rows must be seeded only from the approved coding mapping, not generated sequentially.
+- Coding master values and Budget Planner transaction rows are separate concepts; do not seed the complete master list as transactions.
+- `owner1` is the business owner group and must not be overwritten by person-level `owner`.
+- Demo seed cleanup must be marker-scoped and must never delete real records by coding alone.
+- Existing formulas changed: No.
