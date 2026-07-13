@@ -45,6 +45,16 @@ Database credentials are loaded server-side only. The app must not log DB passwo
 
 `.env` remains ignored. Example env files contain placeholders only.
 
+## Phase 3.2 Security Foundation
+
+- Every request receives an `X-Request-ID`.
+- Write errors use safe public responses.
+- Structured request/error logs include request ID, method, path, status code, duration, and public error code.
+- Logs must not include credentials, cookies, Authorization headers, DB secrets, AWS credentials, or full sensitive payloads.
+- Audit events redact sensitive fields before persistence.
+
+Authentication, RBAC, and chatbot access controls are still not implemented.
+
 ## Non-Negotiable Rule
 
 Do not implement authorization only by hiding UI buttons. Backend must enforce all future permissions.

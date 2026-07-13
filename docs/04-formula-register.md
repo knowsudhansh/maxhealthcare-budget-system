@@ -75,3 +75,9 @@ Database numeric value
 Existing formulas changed: No.
 
 `formatFinancialAmount` must not be used inside business formulas. `parseFinancialAmount` may be used to normalize user-entered or formatted amount strings back to raw numbers before calculations or API submission.
+
+## Phase 3.2 Formula Impact
+
+Existing formulas changed: No.
+
+Phase 3.2 moved allocation write parsing and database writes behind validation and transactions. F020, F021, F022, and F023 calculations are unchanged.

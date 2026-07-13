@@ -51,3 +51,13 @@ Create versioned migrations before UAT/Production:
 
 Do not apply manual production schema changes.
 
+## Phase 3.2 Local Migration Proposals
+
+Added proposal files only:
+
+- `migrations/005_add_record_version.sql`
+- `migrations/006_create_audit_logs.sql`
+
+These were not applied to UAT or Production.
+
+`record_version` is required before optimistic locking can be activated. `audit_logs` is required before audit persistence can be enabled.

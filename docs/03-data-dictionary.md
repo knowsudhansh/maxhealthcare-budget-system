@@ -61,6 +61,24 @@
 | `locationAmounts` | `location_amounts_json` | JSON amount map. |
 | `locationPercents` | `location_percents_json` | JSON percent map. |
 
+## Phase 3.2 Validation Boundary
+
+Write endpoints now validate numeric input before database writes.
+
+- Zero is valid.
+- Invalid numeric strings are rejected.
+- Indian-formatted amount strings are normalized only at accepted input boundaries.
+- API/database amount values remain numeric.
+- Existing formulas changed: No.
+
+Allocation matrix edits preserve explicit per-location amounts from the client instead of redistributing them.
+
+## Future Operational Fields
+
+Migration proposal `migrations/005_add_record_version.sql` adds `record_version` to active write tables. The current runtime remains compatible with schemas where this column is not yet present.
+
+Migration proposal `migrations/006_create_audit_logs.sql` adds `audit_logs`. Audit persistence is disabled unless explicitly enabled and the table exists.
+
 ## Field Naming Risks
 
 - `costCenter` vs `costCenterDepartment`.

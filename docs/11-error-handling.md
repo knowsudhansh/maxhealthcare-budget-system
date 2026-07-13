@@ -54,6 +54,26 @@ Implemented:
 
 These endpoints must not expose DB host, DB name, username, password, secret ARN, stack trace, SQL, or AWS account identifiers.
 
+## Phase 3.2 Error Model
+
+`src/errors/app-error.js` defines `AppError` with:
+
+- `statusCode`
+- `publicCode`
+- `publicMessage`
+- `details`
+- `cause`
+
+`src/middleware/error-handler.js` maps common MySQL errors safely:
+
+- duplicate key -> `409 DUPLICATE_RECORD`
+- foreign-key violation -> `422 VALIDATION_ERROR`
+- connection unavailable -> `503 DATABASE_UNAVAILABLE`
+- deadlock / lock timeout -> `409 RECORD_CONFLICT`
+- unknown errors -> `500 INTERNAL_ERROR`
+
+Responses include request IDs and do not expose stack traces, SQL, DB host/name, usernames, passwords, secret ARNs, or internal file paths.
+
 ## Current Risk
 
 The current code can expose internal DB messages. Production must not return stack traces, SQL text, local file paths, AWS secret names, or credentials.

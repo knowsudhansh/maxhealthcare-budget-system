@@ -115,3 +115,13 @@ Before major changes:
 - AWS Secrets Manager values must be loaded server-side only and cached; never fetch secrets per request.
 - Do not log DB credentials, DB host/name, secret ARN, SQL, stack traces, or AWS account details in public responses.
 - Keep formulas and API field meanings unchanged while refactoring runtime infrastructure.
+
+## Phase 3.2 Write Reliability Guardrails
+
+- Use `withTransaction` for multi-step allocation writes.
+- Validate numeric inputs before writes; do not use `Number(value) || 0` for request validation.
+- Preserve explicit allocation edit amounts; do not redistribute edited matrix rows unless the client omitted explicit amounts.
+- Return standard public error responses with request IDs.
+- Do not activate optimistic locking until `record_version` migration is applied.
+- Do not enable audit persistence until `audit_logs` migration is applied.
+- Existing formulas changed: No.

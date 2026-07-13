@@ -60,3 +60,16 @@
 - Existing formulas changed: No.
 - Database schema modified: No.
 - Remote AWS resources created: No.
+
+### Phase 3.2 Write Reliability Foundation
+
+- Added transaction helper using the Phase 3.1 singleton pool.
+- Added request IDs, structured request logging, and centralized public error responses.
+- Added validation helpers for budget and allocation write paths.
+- Made allocation control/matrix writes transactional where related rows are written.
+- Fixed allocation matrix edit parsing so Indian-formatted amount strings do not become zero.
+- Added optimistic-locking and audit-log migration proposals only.
+- Added audit service foundation with sensitive-field redaction.
+- Added focused Phase 3.2 tests.
+- Existing formulas changed: No.
+- Database schema applied remotely: No.

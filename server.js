@@ -17,6 +17,23 @@ const {
   checkDatabaseReady,
   getSafeDatabaseHealth
 } = require("./src/db/health");
+const { withTransaction } = require("./src/db/transaction");
+const { writeAuditEvent } = require("./src/audit/audit-service");
+const { ERROR_CODES, AppError, notFoundError, validationError } = require("./src/errors/app-error");
+const { requestIdMiddleware } = require("./src/middleware/request-id");
+const { requestLogger } = require("./src/middleware/request-logger");
+const { errorHandler } = require("./src/middleware/error-handler");
+const {
+  normalizeBudgetSubmission,
+  validateBudgetId
+} = require("./src/validation/budget");
+const {
+  normalizeAmountMap: validateAmountMap,
+  normalizePercentMap: validatePercentMap,
+  validateAllocatedTotal,
+  validateAllocationMatrixPayload,
+  validateAllocationRecordPayload
+} = require("./src/validation/allocation");
 
 const app = express();
 let runtimeConfig = null;
@@ -55,6 +72,8 @@ const COLUMN_ORDER = [
 ];
 
 app.use(express.json({ limit: "10mb" }));
+app.use(requestIdMiddleware);
+app.use(requestLogger);
 
 function getAllowedOrigins() {
   if (!runtimeConfig) return [];
@@ -114,43 +133,7 @@ function hasGoogleCredentials() {
 }
 
 function normalizeSubmission(body) {
-  return {
-    "Submitted At": body["Submitted At"] || "",
-
-    "Coding": body["Coding"] || "",
-    "Item": body["Item"] || "",
-
-    "Sub Category (Mapped)": body["Sub Category (Mapped)"] || body["sub_category_mapped"] || "",
-    "Category_IT": body["Category_IT"] || "",
-    "Sub Category": body["Sub Category"] || "",
-    "New Category": body["New Category"] || "",
-    "App Cate.": body["App Cate."] || "",
-    "Cate.3": body["Cate.3"] || "",
-    "Cate.4": body["Cate.4"] || "",
-
-    "Owner1": body["Owner1"] || "",
-    "Owner": body["Owner"] || "",
-
-    "Cost Center / Department":
-      body["Cost Center / Department"] || "",
-
-    "Financial Year": body["Financial Year"] || "",
-    "Location": body["Location"] || "",
-    "Cost Distribution": body["Cost Distribution"] || body["cost_distribution"] || "Fixed Cost",
-
-    "loc_fy_current": Number(body["loc_fy_current"] || 0),
-    "loc_fy_last": Number(body["loc_fy_last"] || 0),
-    "loc_le": Number(body["loc_le"] || 0),
-
-    "new_amc": Number(body["new_amc"] || 0),
-    "new_project": Number(body["new_project"] || 0),
-    "annualized": Number(body["annualized"] || 0),
-    "price_increase": Number(body["price_increase"] || 0),
-    "new_unit": Number(body["new_unit"] || 0),
-    "license_increase": Number(body["license_increase"] || 0),
-    "rest": Number(body["rest"] || 0),
-    "Justification": body["Justification"] || body["justification"] || ""
-  };
+  return normalizeBudgetSubmission(body || {});
 }
 
 function hasUserData(row) {
@@ -515,7 +498,7 @@ async function appendRowToGoogleSheet(row) {
 }
 
 // SAVE DATA
-app.post("/api/budget-submissions", async (req, res) => {
+app.post("/api/budget-submissions", async (req, res, next) => {
   try {
     const row = normalizeSubmission(req.body);
 
@@ -549,20 +532,22 @@ app.post("/api/budget-submissions", async (req, res) => {
       totalRows
     });
   } catch (error) {
-    return res.status(500).json({
-      message: `Save failed: ${error.message}`
-    });
+    return next(error);
   }
 });
 
-app.post("/api/budget-planner/import", async (req, res) => {
+app.post("/api/budget-planner/import", async (req, res, next) => {
   try {
     const inputRows = Array.isArray(req.body && req.body.rows) ? req.body.rows : [];
     if (!inputRows.length) {
-      return res.status(400).json({ message: "No Budget_Planner rows received." });
+      throw validationError("No Budget_Planner rows received.");
     }
     if (!mysqlConfigured()) {
-      return res.status(500).json({ message: "MySQL is not configured. Excel import needs the online DB connection." });
+      throw new AppError({
+        statusCode: 503,
+        publicCode: ERROR_CODES.DATABASE_UNAVAILABLE,
+        publicMessage: "Database is unavailable."
+      });
     }
 
     await ensureBudgetSubmissionImportColumns();
@@ -616,7 +601,7 @@ app.post("/api/budget-planner/import", async (req, res) => {
 
     return res.status(200).json(result);
   } catch (error) {
-    return res.status(500).json({ message: `Import failed: ${error.message}` });
+    return next(error);
   }
 });
 
@@ -639,36 +624,30 @@ app.get("/api/budget-data", async (req, res) => {
   }
 });
 
-app.put("/api/budget-data/:id", async (req, res) => {
+app.put("/api/budget-data/:id", async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ message: "Invalid id." });
-    }
+    const id = validateBudgetId(req.params.id);
     const row = normalizeSubmission(req.body || {});
     const affectedRows = await updateBudgetSubmissionDb(id, row);
     if (!affectedRows) {
-      return res.status(404).json({ message: "Record not found." });
+      throw notFoundError("Record not found.");
     }
     return res.status(200).json({ message: "Updated successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
-app.delete("/api/budget-data/:id", async (req, res) => {
+app.delete("/api/budget-data/:id", async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ message: "Invalid id." });
-    }
+    const id = validateBudgetId(req.params.id);
     const affectedRows = await deleteBudgetSubmissionDb(id);
     if (!affectedRows) {
-      return res.status(404).json({ message: "Record not found." });
+      throw notFoundError("Record not found.");
     }
     return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
@@ -692,19 +671,7 @@ app.get("/api/allocation-data", async (req, res) => {
 });
 
 async function upsertAllocationRecordDb(payload) {
-  const pool = await getMysqlPool();
-  if (!pool) return null;
-
-  const coding = sanitize(payload.coding || payload.Coding);
-  const owner = sanitize(payload.owner || payload.Owner);
-  const financialYear = sanitize(payload.financialYear || payload["Financial Year"] || payload.year);
-  const item = sanitize(payload.item || payload.Item);
-  const mode = sanitize(payload.mode || payload.Mode || "Distributed") || "Distributed";
-  const amountInput = payload.amountInput === "" || payload.amountInput == null ? null : Number(payload.amountInput || 0);
-  const percentInput = payload.percentInput === "" || payload.percentInput == null ? null : Number(payload.percentInput || 0);
-  const targetAmount = Number(payload.targetAmount || 0);
-
-  if (!coding || !owner || !financialYear) return null;
+  const validated = validateAllocationRecordPayload(payload);
 
   const sql = `
     INSERT INTO allocation_records (
@@ -728,14 +695,54 @@ async function upsertAllocationRecordDb(payload) {
       updated_at = NOW()
   `;
 
-  const params = [coding, item, owner, financialYear, mode, amountInput, percentInput, targetAmount];
-  await pool.execute(sql, params);
+  return withTransaction(async (connection) => {
+    const params = [
+      validated.coding,
+      validated.item,
+      validated.owner,
+      validated.financialYear,
+      validated.mode,
+      validated.amountInput,
+      validated.percentInput,
+      validated.targetAmount
+    ];
+    await connection.execute(sql, params);
 
-  const [rows] = await pool.execute(
-    "SELECT * FROM allocation_records WHERE coding = ? AND owner = ? AND financial_year = ? LIMIT 1",
-    [coding, owner, financialYear]
-  );
-  return rows && rows[0] ? rows[0] : null;
+    if (validated.targetAmount > 0) {
+      const mapRows = await getAllocationMapDb(connection);
+      const built = buildAmountMap(validated.targetAmount, mapRows);
+      validateAllocatedTotal(sumAmountMap(built.amounts), validated.targetAmount);
+      await upsertAllocationMatrixWithConnection(connection, {
+        financialYear: validated.financialYear,
+        coding: validated.coding,
+        item: validated.item,
+        owner: validated.owner,
+        costDistribution: "Distributed",
+        totalBudget: validated.targetAmount,
+        locationAmounts: built.amounts,
+        locationPercents: built.percents
+      });
+    }
+
+    const [rows] = await connection.execute(
+      "SELECT * FROM allocation_records WHERE coding = ? AND owner = ? AND financial_year = ? LIMIT 1",
+      [validated.coding, validated.owner, validated.financialYear]
+    );
+
+    const saved = rows && rows[0] ? rows[0] : null;
+    await writeAuditEvent(
+      connection,
+      {
+        entityType: "allocation_records",
+        entityId: saved && saved.id ? saved.id : `${validated.coding}|${validated.owner}|${validated.financialYear}`,
+        action: "UPSERT",
+        newData: saved || validated,
+        requestId: payload.requestId || ""
+      },
+      { enabled: process.env.ENABLE_AUDIT_LOGS === "true" }
+    );
+    return saved;
+  }, { requestId: payload.requestId || "" });
 }
 
 async function deleteAllocationRecordDb(id) {
@@ -759,39 +766,33 @@ async function deleteAllocationRecordByKeyDb(payload) {
   return result.affectedRows || 0;
 }
 
-app.post("/api/allocation-data", async (req, res) => {
+app.post("/api/allocation-data", async (req, res, next) => {
   try {
-    const saved = await upsertAllocationRecordDb(req.body || {});
-    if (!saved) {
-      return res.status(400).json({ message: "Missing coding/owner/financialYear." });
-    }
+    const saved = await upsertAllocationRecordDb(Object.assign({}, req.body || {}, { requestId: req.requestId }));
     return res.status(200).json(saved);
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
-app.delete("/api/allocation-data/by-key", async (req, res) => {
+app.delete("/api/allocation-data/by-key", async (req, res, next) => {
   try {
     const affectedRows = await deleteAllocationRecordByKeyDb(req.query || {});
-    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    if (!affectedRows) throw notFoundError("Record not found.");
     return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
-app.delete("/api/allocation-data/:id", async (req, res) => {
+app.delete("/api/allocation-data/:id", async (req, res, next) => {
   try {
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) {
-      return res.status(400).json({ message: "Invalid id." });
-    }
+    const id = validateBudgetId(req.params.id);
     const affectedRows = await deleteAllocationRecordDb(id);
-    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    if (!affectedRows) throw notFoundError("Record not found.");
     return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
@@ -810,10 +811,10 @@ app.get("/api/allocation-map", async (req, res) => {
   }
 });
 
-async function getAllocationMapDb() {
-  const pool = await getMysqlPool();
-  if (!pool) return [];
-  const [rows] = await pool.query("SELECT location, percent FROM allocation_location_map ORDER BY location ASC");
+async function getAllocationMapDb(executor) {
+  const db = executor || (await getMysqlPool());
+  if (!db) return [];
+  const [rows] = await db.query("SELECT location, percent FROM allocation_location_map ORDER BY location ASC");
   const cleaned = Array.isArray(rows) ? rows.filter((row) => row && row.location) : [];
   if (cleaned.length) return cleaned;
 
@@ -855,27 +856,54 @@ function buildAmountMap(totalBudget, locationMapRows) {
   return { amounts, percents };
 }
 
-function isPlainObject(value) {
-  return value && typeof value === "object" && !Array.isArray(value);
-}
-
-function hasObjectKeys(value) {
-  return isPlainObject(value) && Object.keys(value).length > 0;
-}
-
-function cleanAmountMap(value) {
-  const cleaned = {};
-  if (!isPlainObject(value)) return cleaned;
-  Object.keys(value).forEach((location) => {
-    if (!location) return;
-    const amount = Number(value[location] || 0);
-    cleaned[location] = Number.isFinite(amount) && amount > 0 ? amount : 0;
-  });
-  return cleaned;
-}
-
 function sumAmountMap(value) {
   return Object.keys(value || {}).reduce((sum, key) => sum + Number(value[key] || 0), 0);
+}
+
+async function upsertAllocationMatrixWithConnection(connection, payload) {
+  const resolvedAmounts = validateAmountMap(payload.locationAmounts || {});
+  const resolvedPercents = validatePercentMap(payload.locationPercents || {});
+  const resolvedTotalBudget = Number(payload.totalBudget || 0);
+
+  const sql = `
+    INSERT INTO allocation_matrix (
+      financial_year,
+      coding,
+      item,
+      owner,
+      total_budget,
+      cost_distribution,
+      location_amounts_json,
+      location_percents_json,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
+    ON DUPLICATE KEY UPDATE
+      item = VALUES(item),
+      total_budget = VALUES(total_budget),
+      cost_distribution = VALUES(cost_distribution),
+      location_amounts_json = VALUES(location_amounts_json),
+      location_percents_json = VALUES(location_percents_json),
+      updated_at = NOW()
+  `;
+
+  await connection.execute(sql, [
+    payload.financialYear,
+    payload.coding,
+    payload.item || "",
+    payload.owner,
+    resolvedTotalBudget,
+    payload.costDistribution || "Distributed",
+    JSON.stringify(resolvedAmounts || {}),
+    JSON.stringify(resolvedPercents || {})
+  ]);
+
+  const [rows] = await connection.execute(
+    "SELECT * FROM allocation_matrix WHERE financial_year = ? AND coding = ? AND owner = ? AND cost_distribution = ? LIMIT 1",
+    [payload.financialYear, payload.coding, payload.owner, payload.costDistribution || "Distributed"]
+  );
+
+  return rows && rows[0] ? rows[0] : null;
 }
 
 app.get("/api/allocation-matrix", async (req, res) => {
@@ -893,140 +921,109 @@ app.get("/api/allocation-matrix", async (req, res) => {
   }
 });
 
-app.post("/api/allocation-matrix", async (req, res) => {
+app.post("/api/allocation-matrix", async (req, res, next) => {
   try {
-    const pool = await getMysqlPool();
-    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
+    const validated = validateAllocationMatrixPayload(req.body || {});
 
-    const body = req.body || {};
-    const financialYear = sanitize(body.financialYear || body.financial_year || body["Financial Year"]);
-    const coding = sanitize(body.coding || body.Coding);
-    const item = sanitize(body.item || body.Item);
-    const owner = sanitize(body.owner || body.Owner);
-    const costDistribution = sanitize(body.costDistribution || body.cost_distribution || body.mode || "Distributed") || "Distributed";
-    const totalBudgetInput = Number(body.totalBudget || body.total_budget || body.targetAmount || 0);
-
-    if (!financialYear || !coding || !owner) {
-      return res.status(400).json({ message: "Missing financialYear/coding/owner." });
-    }
-
-    const mapRows = await getAllocationMapDb();
-    const built = buildAmountMap(totalBudgetInput, mapRows);
-
-    // If the client sends explicit per-location amounts (editing), store them as-is.
-    const rawAmounts = body.locationAmounts || body.location_amounts || body.location_amounts_json || null;
-    const rawPercents = body.locationPercents || body.location_percents || body.location_percents_json || null;
-    const explicitAmountsRaw = (() => {
-      if (!rawAmounts) return null;
-      try {
-        if (typeof rawAmounts === "string") return JSON.parse(rawAmounts);
-        if (typeof rawAmounts === "object") return rawAmounts;
-        return null;
-      } catch (_e) {
-        return null;
-      }
-    })();
-    const explicitPercentsRaw = (() => {
-      if (!rawPercents) return null;
-      try {
-        if (typeof rawPercents === "string") return JSON.parse(rawPercents);
-        if (typeof rawPercents === "object") return rawPercents;
-        return null;
-      } catch (_e) {
-        return null;
-      }
-    })();
-
-    const explicitAmountsCandidate = hasObjectKeys(explicitAmountsRaw) ? cleanAmountMap(explicitAmountsRaw) : null;
-    const explicitAmounts =
-      explicitAmountsCandidate && sumAmountMap(explicitAmountsCandidate) > 0
-        ? explicitAmountsCandidate
-        : null;
-    const explicitPercents = hasObjectKeys(explicitPercentsRaw) ? explicitPercentsRaw : null;
-    const resolvedAmounts = explicitAmounts || (built.amounts || {});
-    const resolvedPercents = explicitPercents || (built.percents || {});
-    const resolvedTotalBudget =
-      explicitAmounts
+    const saved = await withTransaction(async (connection) => {
+      const mapRows = await getAllocationMapDb(connection);
+      const built = buildAmountMap(validated.totalBudget, mapRows);
+      const hasExplicitAmounts = validated.explicitAmounts !== null;
+      const resolvedAmounts = hasExplicitAmounts ? validated.explicitAmounts : built.amounts;
+      const resolvedPercents = validated.explicitPercents || built.percents;
+      const resolvedTotalBudget = hasExplicitAmounts
         ? sumAmountMap(resolvedAmounts)
-        : totalBudgetInput;
-    const sql = `
-      INSERT INTO allocation_matrix (
-        financial_year,
-        coding,
-        item,
-        owner,
-        total_budget,
-        cost_distribution,
-        location_amounts_json,
-        location_percents_json,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())
-      ON DUPLICATE KEY UPDATE
-        item = VALUES(item),
-        total_budget = VALUES(total_budget),
-        cost_distribution = VALUES(cost_distribution),
-        location_amounts_json = VALUES(location_amounts_json),
-        location_percents_json = VALUES(location_percents_json),
-        updated_at = NOW()
-    `;
+        : validated.totalBudget;
 
-    await pool.execute(sql, [
-      financialYear,
-      coding,
-      item,
-      owner,
-      resolvedTotalBudget,
-      costDistribution,
-      JSON.stringify(resolvedAmounts || {}),
-      JSON.stringify(resolvedPercents || {})
-    ]);
+      validateAllocatedTotal(sumAmountMap(resolvedAmounts), resolvedTotalBudget);
 
-    const [rows] = await pool.execute(
-      "SELECT * FROM allocation_matrix WHERE financial_year = ? AND coding = ? AND owner = ? AND cost_distribution = ? LIMIT 1",
-      [financialYear, coding, owner, costDistribution]
-    );
-    return res.status(200).json(rows && rows[0] ? rows[0] : { message: "Saved." });
+      const row = await upsertAllocationMatrixWithConnection(connection, {
+        financialYear: validated.financialYear,
+        coding: validated.coding,
+        item: validated.item,
+        owner: validated.owner,
+        costDistribution: validated.costDistribution,
+        totalBudget: resolvedTotalBudget,
+        locationAmounts: resolvedAmounts,
+        locationPercents: resolvedPercents
+      });
+
+      await connection.execute(
+        `
+          UPDATE allocation_records
+          SET target_amount = ?, updated_at = NOW()
+          WHERE coding = ? AND owner = ? AND financial_year = ?
+        `,
+        [resolvedTotalBudget, validated.coding, validated.owner, validated.financialYear]
+      );
+
+      await writeAuditEvent(
+        connection,
+        {
+          entityType: "allocation_matrix",
+          entityId: row && row.id ? row.id : `${validated.coding}|${validated.owner}|${validated.financialYear}`,
+          action: "UPSERT",
+          newData: row,
+          requestId: req.requestId || ""
+        },
+        { enabled: process.env.ENABLE_AUDIT_LOGS === "true" }
+      );
+
+      return row;
+    }, { requestId: req.requestId });
+
+    return res.status(200).json(saved || { message: "Saved." });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
-app.delete("/api/allocation-matrix/by-key", async (req, res) => {
+app.delete("/api/allocation-matrix/by-key", async (req, res, next) => {
   try {
     const pool = await getMysqlPool();
-    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
+    if (!pool) {
+      throw new AppError({
+        statusCode: 503,
+        publicCode: ERROR_CODES.DATABASE_UNAVAILABLE,
+        publicMessage: "Database is unavailable."
+      });
+    }
     const financialYear = sanitize(req.query.financialYear || req.query.financial_year || req.query.year);
     const coding = sanitize(req.query.coding);
     const owner = sanitize(req.query.owner);
     const costDistribution = sanitize(req.query.costDistribution || req.query.cost_distribution || "Distributed") || "Distributed";
     if (!financialYear || !coding || !owner) {
-      return res.status(400).json({ message: "Missing financialYear/coding/owner." });
+      throw validationError("Missing financialYear/coding/owner.");
     }
     const [result] = await pool.execute(
       "DELETE FROM allocation_matrix WHERE financial_year = ? AND coding = ? AND owner = ? AND cost_distribution = ?",
       [financialYear, coding, owner, costDistribution]
     );
     const affectedRows = result.affectedRows || 0;
-    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    if (!affectedRows) throw notFoundError("Record not found.");
     return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
-app.delete("/api/allocation-matrix/:id", async (req, res) => {
+app.delete("/api/allocation-matrix/:id", async (req, res, next) => {
   try {
     const pool = await getMysqlPool();
-    if (!pool) return res.status(500).json({ message: "MySQL not configured." });
-    const id = Number(req.params.id);
-    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ message: "Invalid id." });
+    if (!pool) {
+      throw new AppError({
+        statusCode: 503,
+        publicCode: ERROR_CODES.DATABASE_UNAVAILABLE,
+        publicMessage: "Database is unavailable."
+      });
+    }
+    const id = validateBudgetId(req.params.id);
     const [result] = await pool.execute("DELETE FROM allocation_matrix WHERE id = ?", [id]);
     const affectedRows = result.affectedRows || 0;
-    if (!affectedRows) return res.status(404).json({ message: "Record not found." });
+    if (!affectedRows) throw notFoundError("Record not found.");
     return res.status(200).json({ message: "Deleted successfully.", affectedRows });
   } catch (error) {
-    return res.status(500).json({ message: error.message });
+    return next(error);
   }
 });
 
@@ -1064,6 +1061,8 @@ app.get("/health/ready", async (req, res) => {
     database: "connected"
   });
 });
+
+app.use(errorHandler);
 
 async function startServer() {
   runtimeConfig = loadEnvironment(process.env);

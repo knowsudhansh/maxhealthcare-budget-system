@@ -181,3 +181,32 @@ npm run test:formatting
 npm run test:planner-ui
 npm run test:clearable-fields
 ```
+
+## Phase 3.2 Transaction And Error Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:phase3-2
+```
+
+Coverage includes:
+
+- Transaction commit, rollback, release, and original error preservation.
+- Numeric validation with zero accepted and invalid strings rejected.
+- Indian-formatted amount normalization only where allowed.
+- Financial year, ID, and percentage validation.
+- Request ID generation, safe inbound ID acceptance, unsafe inbound replacement, and response header.
+- Public error response mapping for validation, not found, duplicate, conflict, database unavailable, and internal errors.
+- Audit event redaction and transaction-connection usage.
+- Optimistic-locking helper behavior.
+- Allocation matrix transaction commit and rollback with formatted amount values preserved as numbers.
+
+Regression commands:
+
+```bash
+npm run test:phase3-1
+npm run test:formatting
+npm run test:planner-ui
+npm run test:clearable-fields
+```

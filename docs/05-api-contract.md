@@ -46,6 +46,36 @@ Base URL is chosen in `app.js`:
 
 `GET /health/ready` confirms the singleton MySQL pool can run `SELECT 1`. Traffic should not be sent to the service until readiness succeeds.
 
+## Phase 3.2 Error Response Standard
+
+Write endpoints now use the standard error shape:
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Safe user-facing message.",
+    "requestId": "request-id"
+  }
+}
+```
+
+Success response shapes are preserved where feasible.
+
+Supported public error codes include:
+
+- `VALIDATION_ERROR`
+- `RECORD_NOT_FOUND`
+- `RECORD_CONFLICT`
+- `DUPLICATE_RECORD`
+- `ALLOCATION_TOTAL_INVALID`
+- `DATABASE_UNAVAILABLE`
+- `DEPENDENCY_UNAVAILABLE`
+- `INTERNAL_ERROR`
+
+`X-Request-ID` is returned on every request.
+
 ## Financial Formatting Boundary
 
 API requests and responses continue to use raw numeric amount values. Phase 2 formatting is display/export formatting only.
