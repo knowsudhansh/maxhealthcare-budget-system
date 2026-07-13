@@ -12,9 +12,15 @@ const dockerfile = read("Dockerfile");
 const dockerignore = read(".dockerignore");
 const compose = read("compose.yaml");
 
-assert.match(dockerfile, /FROM node:22-alpine AS dependencies/);
+assert.match(
+  dockerfile,
+  /FROM node:22\.21\.1-bookworm-slim AS dependencies/
+);
 assert.match(dockerfile, /npm ci --omit=dev/);
-assert.match(dockerfile, /FROM node:22-alpine AS runtime/);
+assert.match(
+  dockerfile,
+  /FROM node:22\.21\.1-bookworm-slim AS runtime/
+);
 assert.match(dockerfile, /USER node/);
 assert.match(dockerfile, /HEALTHCHECK[\s\S]+\/health\/ready/);
 assert.match(dockerfile, /CMD \["node", "server\.js"\]/);
