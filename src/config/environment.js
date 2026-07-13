@@ -7,6 +7,32 @@ const LOCALHOST_VALUES = new Set(["localhost", "127.0.0.1", "::1", "0.0.0.0"]);
 const PROD_FORBIDDEN_SECRET_TERMS = ["uat", "test", "dev", "development", "local"];
 const UAT_FORBIDDEN_SECRET_TERMS = ["production", "prod"];
 
+function normalizeBasePath(value) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "/") return "";
+
+  if (
+    raw.includes("?") ||
+    raw.includes("#") ||
+    raw.includes("\\") ||
+    /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+  ) {
+    throw new Error("APP_BASE_PATH is malformed.");
+  }
+
+  const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+  const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/g, "");
+  const segments = withoutTrailingSlash.split("/").filter(Boolean);
+  if (!segments.length) return "";
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("APP_BASE_PATH must not contain traversal segments.");
+  }
+  if (segments.some((segment) => !/^[A-Za-z0-9._~-]+$/.test(segment))) {
+    throw new Error("APP_BASE_PATH contains unsupported characters.");
+  }
+  return `/${segments.join("/")}`;
+}
+
 function normalizeAppEnv(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "dev" || normalized === "local") return "development";
@@ -57,6 +83,13 @@ function requireValue(value, name, errors) {
 function loadEnvironment(env = process.env) {
   const errors = [];
   const appEnv = normalizeAppEnv(env.APP_ENV);
+  let appBasePath = "";
+
+  try {
+    appBasePath = normalizeBasePath(env.APP_BASE_PATH);
+  } catch (error) {
+    errors.push(error.message);
+  }
 
   if (!appEnv) {
     errors.push("APP_ENV is required.");
@@ -81,6 +114,7 @@ function loadEnvironment(env = process.env) {
   const config = {
     appEnv,
     port: parseInteger(env.PORT, 3000, "PORT", errors),
+    appBasePath,
     frontendUrl: String(env.FRONTEND_URL || "").trim(),
     allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS),
     awsRegion: String(env.AWS_REGION || "").trim(),
@@ -93,6 +127,7 @@ function loadEnvironment(env = process.env) {
       user: String(env.DB_USER || env.MYSQL_USER || "").trim(),
       password: String(env.DB_PASSWORD || env.MYSQL_PASSWORD || ""),
       ssl: parseBoolean(env.DB_SSL, false),
+      sslCaPath: String(env.DB_SSL_CA || "").trim(),
       connectionLimit: dbConnectionLimit,
       connectTimeoutMs: dbConnectTimeoutMs
     },
@@ -141,6 +176,10 @@ function loadEnvironment(env = process.env) {
     }
   }
 
+  if (config.db.ssl && !config.db.sslCaPath) {
+    errors.push("DB_SSL_CA is required when DB_SSL=true.");
+  }
+
   if (config.appEnv === "production") {
     if (config.db.secretArn && containsAnyTerm(config.db.secretArn, PROD_FORBIDDEN_SECRET_TERMS)) {
       errors.push("Production DB_SECRET_ARN must not look like a UAT/test/development/local secret.");
@@ -167,6 +206,7 @@ module.exports = {
   containsAnyTerm,
   isLocalhostHost,
   loadEnvironment,
+  normalizeBasePath,
   normalizeAppEnv,
   parseBoolean,
   parseOrigins

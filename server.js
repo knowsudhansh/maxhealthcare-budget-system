@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const XLSX = require("xlsx");
 const { google } = require("googleapis");
-const { loadEnvironment } = require("./src/config/environment");
+const { loadEnvironment, normalizeBasePath } = require("./src/config/environment");
 const { loadDbSecret } = require("./src/config/secrets");
 const {
   closePool,
@@ -80,6 +80,15 @@ function getAllowedOrigins() {
   return runtimeConfig.allowedOrigins || [];
 }
 
+function getCurrentBasePath() {
+  if (runtimeConfig) return runtimeConfig.appBasePath || "";
+  try {
+    return normalizeBasePath(process.env.APP_BASE_PATH || "");
+  } catch (_error) {
+    return "";
+  }
+}
+
 // CORS
 app.use((req, res, next) => {
   const allowedOrigins = getAllowedOrigins();
@@ -110,7 +119,52 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.static(__dirname));
+app.use((req, res, next) => {
+  const basePath = getCurrentBasePath();
+  if (!basePath) return next();
+
+  if (req.path === basePath) {
+    const queryIndex = req.url.indexOf("?");
+    const query = queryIndex >= 0 ? req.url.slice(queryIndex) : "";
+    return res.redirect(308, `${basePath}/${query}`);
+  }
+
+  if (req.path.startsWith(`${basePath}/`)) {
+    req.url = req.url.slice(basePath.length) || "/";
+  }
+
+  return next();
+});
+
+app.get("/app-config.js", (req, res) => {
+  const basePath = getCurrentBasePath();
+  res.type("application/javascript");
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(`window.APP_CONFIG = ${JSON.stringify({ basePath })};\n`);
+});
+
+const STATIC_FILES = new Set([
+  "app-utils.js",
+  "app-data.js",
+  "app-ui.js",
+  "app.js",
+  "favicon.svg",
+  "index.html",
+  "style.css",
+  "styles.css"
+]);
+
+function sendStaticFile(res, filename) {
+  if (!STATIC_FILES.has(filename)) return res.sendStatus(404);
+  return res.sendFile(path.join(__dirname, filename));
+}
+
+app.get("/", (req, res) => sendStaticFile(res, "index.html"));
+app.get("/:asset", (req, res, next) => {
+  const asset = String(req.params.asset || "");
+  if (!STATIC_FILES.has(asset)) return next();
+  return sendStaticFile(res, asset);
+});
 
 function sanitize(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -1072,7 +1126,16 @@ async function startServer() {
 
   httpServer = app.listen(runtimeConfig.port, "0.0.0.0", () => {
     console.log(`IT Opex app running at http://localhost:${runtimeConfig.port}`);
-    console.log("MySQL pool initialized.");
+    console.log(
+      JSON.stringify({
+        message: "MySQL pool initialized.",
+        appEnv: runtimeConfig.appEnv,
+        dbHost: runtimeConfig.db.host,
+        dbPort: runtimeConfig.db.port,
+        dbName: runtimeConfig.db.database,
+        dbSsl: runtimeConfig.db.ssl
+      })
+    );
   });
 
   return httpServer;

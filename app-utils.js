@@ -106,11 +106,86 @@
     return true;
   }
 
+  function normalizeBasePath(value) {
+    const raw = String(value || "").trim();
+    if (!raw || raw === "/") return "";
+    if (
+      raw.includes("?") ||
+      raw.includes("#") ||
+      raw.includes("\\") ||
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
+    ) {
+      return "";
+    }
+    const withLeadingSlash = raw.startsWith("/") ? raw : `/${raw}`;
+    const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/g, "");
+    const segments = withoutTrailingSlash.split("/").filter(Boolean);
+    if (!segments.length) return "";
+    if (segments.some((segment) => segment === "." || segment === "..")) return "";
+    if (segments.some((segment) => !/^[A-Za-z0-9._~-]+$/.test(segment))) return "";
+    return `/${segments.join("/")}`;
+  }
+
+  function getAppBasePath() {
+    const config = typeof globalThis !== "undefined" ? globalThis.APP_CONFIG || {} : {};
+    return normalizeBasePath(config.basePath || "");
+  }
+
+  function trimSlashes(value) {
+    return String(value || "").replace(/^\/+|\/+$/g, "");
+  }
+
+  function joinUrl(base, path) {
+    const normalizedBase = String(base || "").replace(/\/+$/g, "");
+    const normalizedPath = trimSlashes(path);
+    return normalizedPath ? `${normalizedBase}/${normalizedPath}` : normalizedBase || "/";
+  }
+
+  function buildAppUrl(path) {
+    const basePath = getAppBasePath();
+    const normalizedPath = trimSlashes(path);
+    if (!normalizedPath) return basePath || "/";
+    return `${basePath}/${normalizedPath}`;
+  }
+
+  function getApiBaseOverride() {
+    try {
+      if (typeof localStorage === "undefined") return "";
+      return String(localStorage.getItem("API_BASE_OVERRIDE") || "").trim();
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function buildApiUrl(path) {
+    const apiPath = trimSlashes(path).replace(/^api\/?/i, "");
+    const endpointPath = apiPath ? `api/${apiPath}` : "api";
+    const override = getApiBaseOverride();
+    if (override) return joinUrl(override, endpointPath);
+    try {
+      if (typeof location !== "undefined" && location.protocol === "file:") {
+        return joinUrl("http://localhost:3001", endpointPath);
+      }
+    } catch (_error) {}
+    return buildAppUrl(endpointPath);
+  }
+
+  const AppUrls = {
+    app: buildAppUrl,
+    api: buildApiUrl,
+    basePath: getAppBasePath
+  };
+
   return {
+    AppUrls,
     DEFAULT_LOCALE,
     EXCEL_FINANCIAL_FORMAT,
+    buildApiUrl,
+    buildAppUrl,
     filterCodingValues,
     formatFinancialAmount,
+    getAppBasePath,
+    normalizeBasePath,
     normalizeCodingKey,
     normalizeSearchKey,
     shouldShowClearButton,

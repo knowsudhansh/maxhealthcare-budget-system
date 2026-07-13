@@ -9,3 +9,6 @@ npm-debug.log*
 .env.docker
 *.pem
 *.key
+certs/*.pem
+certs/*.crt
+certs/*.cer

@@ -93,7 +93,8 @@ async function run() {
         baseEnv({
           APP_ENV: "production",
           ALLOWED_ORIGINS: "https://budget.example.com",
-          DB_SSL: "true"
+          DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
         })
       ),
     /localhost DB host/
@@ -107,7 +108,8 @@ async function run() {
           APP_ENV: "production",
           ALLOWED_ORIGINS: "*",
           DB_HOST: "db.example.com",
-          DB_SSL: "true"
+          DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
         })
       ),
     /wildcard/
@@ -140,7 +142,8 @@ async function run() {
           DB_NAME: "",
           DB_USER: "",
           DB_PASSWORD: "",
-          DB_SSL: "true"
+          DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
         })
       ),
     /UAT\/test\/development/
@@ -159,7 +162,8 @@ async function run() {
           DB_NAME: "",
           DB_USER: "",
           DB_PASSWORD: "",
-          DB_SSL: "true"
+          DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
         })
       ),
     /Production secret/
@@ -175,7 +179,8 @@ async function run() {
       DB_NAME: "",
       DB_USER: "",
       DB_PASSWORD: "",
-      DB_SSL: "true"
+      DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
     })
   );
   assert.strictEqual(uatConfig.appEnv, "uat");
@@ -190,7 +195,8 @@ async function run() {
       DB_NAME: "",
       DB_USER: "",
       DB_PASSWORD: "",
-      DB_SSL: "true"
+      DB_SSL: "true",
+          DB_SSL_CA: "./certs/test-ca.pem"
     })
   );
   assert.strictEqual(prodConfig.appEnv, "production");

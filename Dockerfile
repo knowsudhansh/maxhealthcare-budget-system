@@ -7,8 +7,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 
 RUN --mount=type=secret,id=corp_ca,target=/run/secrets/corp-ca.pem \
-    export NODE_EXTRA_CA_CERTS=/run/secrets/corp-ca.pem && \
-    export npm_config_cafile=/run/secrets/corp-ca.pem && \
+    if [ -s /run/secrets/corp-ca.pem ]; then \
+      export NODE_EXTRA_CA_CERTS=/run/secrets/corp-ca.pem; \
+      export npm_config_cafile=/run/secrets/corp-ca.pem; \
+    fi && \
     npm ci --omit=dev --no-audit --no-fund
 
 FROM node:22.21.1-bookworm-slim AS runtime

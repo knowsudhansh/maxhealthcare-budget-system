@@ -47,6 +47,7 @@ assert.match(compose, /dockerfile: Dockerfile/);
 assert.match(compose, /3001:3000/);
 assert.match(compose, /ENABLE_EXCEL_MIRROR: "false"/);
 assert.match(compose, /ENABLE_GOOGLE_SHEETS_SYNC: "false"/);
+assert.match(compose, /APP_BASE_PATH: \$\{APP_BASE_PATH:-\}/);
 assert.match(compose, /budget-app-data:\/app\/Server data/);
 assert.ok(!compose.includes("DB_PASSWORD="));
 assert.ok(!compose.includes("MYSQL_PASSWORD="));

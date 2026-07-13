@@ -6,21 +6,10 @@
   const utils = window.OpexUtils || {};
   const ALLOCATION_DB_KEY = "it_opex_allocation_db_v1";
   const ALLOCATION_MATRIX_OVERRIDES_KEY = "it_opex_allocation_matrix_overrides_v1";
-  // API base selection:
-  // - Local dev: when running UI from localhost, default to local API server
-  // - Hosted: default to Railway
-  // You can override anytime via: localStorage.setItem("API_BASE_OVERRIDE", "http://localhost:3000")
-  const API_BASE_OVERRIDE =
-    typeof localStorage !== "undefined" ? String(localStorage.getItem("API_BASE_OVERRIDE") || "") : "";
-  const IS_LOCAL_UI =
-    location.protocol === "file:" || location.hostname === "localhost" || location.hostname === "127.0.0.1";
-  const API_BASE_DEFAULT =
-    IS_LOCAL_UI
-      ? "http://localhost:3001"
-      : "https://maxhealthcare-budget-system-production.up.railway.app";
-  const API_BASE = API_BASE_OVERRIDE || API_BASE_DEFAULT;
+  const AppUrls = utils.AppUrls || {};
+  const apiUrl = typeof AppUrls.api === "function" ? AppUrls.api : (path) => `api/${String(path || "").replace(/^\/+/, "")}`;
   try {
-    console.log("API_BASE:", API_BASE);
+    console.log("APP_BASE_PATH:", typeof AppUrls.basePath === "function" ? AppUrls.basePath() : "");
   } catch (_e) {}
   const LIVE_SYNC_INTERVAL_MS = 15000;
 
@@ -520,7 +509,7 @@
 
   async function loadAllocationDbFromServer() {
     try {
-      const response = await fetch(`${API_BASE}/api/allocation-data`);
+      const response = await fetch(apiUrl("allocation-data"));
       if (!response.ok) throw new Error(`Allocation load failed (${response.status})`);
       const rows = await response.json();
       state.allocationDb = (Array.isArray(rows) ? rows : []).map((row) => ({
@@ -556,7 +545,7 @@
           item: entry.item || ""
         };
         try {
-          const response = await fetch(`${API_BASE}/api/allocation-data`, {
+          const response = await fetch(apiUrl("allocation-data"), {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(payload)
@@ -574,7 +563,7 @@
 
   async function loadAllocationMatrixFromServer() {
     try {
-      const response = await fetch(`${API_BASE}/api/allocation-matrix`);
+      const response = await fetch(apiUrl("allocation-matrix"));
       if (!response.ok) throw new Error(`Allocation matrix load failed (${response.status})`);
       const rows = await response.json();
       const mappedRows = (Array.isArray(rows) ? rows : []).map((row) => {
@@ -649,7 +638,7 @@
   }
 
   async function saveAllocationMatrixRowToServer(payload) {
-    const response = await fetch(`${API_BASE}/api/allocation-matrix`, {
+    const response = await fetch(apiUrl("allocation-matrix"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload || {})
@@ -1117,7 +1106,7 @@
 
       state.plannerImportMessage = `Uploading ${parsed.rows.length} Budget_Planner row(s)...`;
       render();
-      const response = await fetch(`${API_BASE}/api/budget-planner/import`, {
+      const response = await fetch(apiUrl("budget-planner/import"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rows: parsed.rows })
@@ -1150,7 +1139,7 @@
       return;
     }
 
-    const url = canUpdate ? `${API_BASE}/api/budget-data/${numericId}` : `${API_BASE}/api/budget-submissions`;
+    const url = canUpdate ? apiUrl(`budget-data/${numericId}`) : apiUrl("budget-submissions");
     const method = canUpdate ? "PUT" : "POST";
 
     try {
@@ -1211,7 +1200,7 @@ function editRecord(id) {
 
     if (canDeleteRemote) {
       try {
-        const response = await fetch(`${API_BASE}/api/budget-data/${numericId}`, {
+        const response = await fetch(apiUrl(`budget-data/${numericId}`), {
           method: "DELETE"
         });
         if (!response.ok) {
@@ -1690,7 +1679,7 @@ function render() {
       const numericMatrixId = Number(matrixId);
       if (Number.isFinite(numericMatrixId) && numericMatrixId > 0) {
         deleteTasks.push(
-          fetch(`${API_BASE}/api/allocation-matrix/${encodeURIComponent(String(matrixId))}`, { method: "DELETE" })
+          fetch(apiUrl(`allocation-matrix/${encodeURIComponent(String(matrixId))}`), { method: "DELETE" })
             .then(async (res) => {
               if (!res.ok) throw new Error(await res.text());
             })
@@ -1703,7 +1692,7 @@ function render() {
           costDistribution: "Distributed"
         });
         deleteTasks.push(
-          fetch(`${API_BASE}/api/allocation-matrix/by-key?${matrixDeleteQuery}`, { method: "DELETE" })
+          fetch(apiUrl(`allocation-matrix/by-key?${matrixDeleteQuery}`), { method: "DELETE" })
             .then(async (res) => {
               if (!res.ok && res.status !== 404) throw new Error(await res.text());
             })
@@ -1715,7 +1704,7 @@ function render() {
         if (!Number.isFinite(allocationId) || allocationId <= 0) return;
         hasNumericAllocationDelete = true;
         deleteTasks.push(
-          fetch(`${API_BASE}/api/allocation-data/${encodeURIComponent(String(entry.id))}`, { method: "DELETE" })
+          fetch(apiUrl(`allocation-data/${encodeURIComponent(String(entry.id))}`), { method: "DELETE" })
             .then(async (res) => {
               if (!res.ok) throw new Error(await res.text());
             })
@@ -1728,7 +1717,7 @@ function render() {
           owner
         });
         deleteTasks.push(
-          fetch(`${API_BASE}/api/allocation-data/by-key?${allocationDeleteQuery}`, { method: "DELETE" })
+          fetch(apiUrl(`allocation-data/by-key?${allocationDeleteQuery}`), { method: "DELETE" })
             .then(async (res) => {
               if (!res.ok && res.status !== 404) throw new Error(await res.text());
             })
@@ -2345,7 +2334,7 @@ function render() {
 async function loadLiveBudgetData(logStatus) {
   try {
 
-    const response = await fetch(`${API_BASE}/api/budget-data`);
+    const response = await fetch(apiUrl("budget-data"));
     if (!response.ok) throw new Error(`Load failed (${response.status})`);
 
     const rows = await response.json();

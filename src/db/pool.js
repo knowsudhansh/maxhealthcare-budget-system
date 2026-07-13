@@ -1,7 +1,42 @@
 const mysql = require("mysql2/promise");
+const fs = require("fs");
+const path = require("path");
 
 let pool;
 let poolConfigFingerprint = "";
+let cachedCaPath = "";
+let cachedCaContents = "";
+
+function resolveCaPath(caPath) {
+  const value = String(caPath || "").trim();
+  if (!value) return "";
+  return path.isAbsolute(value) ? value : path.resolve(__dirname, "..", "..", value);
+}
+
+function loadSslCa(caPath, dependencies = {}) {
+  const resolved = resolveCaPath(caPath);
+  if (!resolved) {
+    const error = new Error("DB_SSL_CA is required when DB_SSL=true.");
+    error.code = "DB_SSL_CA_MISSING";
+    throw error;
+  }
+
+  if (cachedCaPath === resolved && cachedCaContents) {
+    return cachedCaContents;
+  }
+
+  const fileSystem = dependencies.fs || fs;
+  try {
+    cachedCaContents = fileSystem.readFileSync(resolved, "utf8");
+    cachedCaPath = resolved;
+    return cachedCaContents;
+  } catch (cause) {
+    const error = new Error("DB_SSL_CA file could not be read.");
+    error.code = "DB_SSL_CA_UNREADABLE";
+    error.cause = cause;
+    throw error;
+  }
+}
 
 function buildDbCredentials(config, secret) {
   const db = config.db;
@@ -11,12 +46,19 @@ function buildDbCredentials(config, secret) {
     database: secret ? secret.database : db.database,
     user: secret ? secret.user : db.user,
     password: secret ? secret.password : db.password,
-    ssl: db.ssl || Boolean(secret && secret.ssl)
+    ssl: db.ssl || Boolean(secret && secret.ssl),
+    sslCaPath: db.sslCaPath || ""
   };
 }
 
-function buildPoolConfig(config, secret) {
+function buildPoolConfig(config, secret, dependencies = {}) {
   const credentials = buildDbCredentials(config, secret);
+  const sslConfig = credentials.ssl
+    ? {
+        ca: loadSslCa(credentials.sslCaPath, dependencies),
+        rejectUnauthorized: true
+      }
+    : undefined;
   return {
     host: credentials.host,
     port: credentials.port,
@@ -28,7 +70,7 @@ function buildPoolConfig(config, secret) {
     queueLimit: 0,
     enableKeepAlive: true,
     connectTimeout: config.db.connectTimeoutMs,
-    ssl: credentials.ssl ? { rejectUnauthorized: true } : undefined
+    ssl: sslConfig
   };
 }
 
@@ -48,7 +90,7 @@ async function initializePool(config, secret = null, dependencies = {}) {
   if (pool) return pool;
 
   const mysqlClient = dependencies.mysql || mysql;
-  const poolConfig = buildPoolConfig(config, secret);
+  const poolConfig = buildPoolConfig(config, secret, dependencies);
   const nextPool = mysqlClient.createPool(poolConfig);
 
   try {
@@ -111,6 +153,8 @@ function getPoolConfigFingerprint() {
 function resetPoolForTests() {
   pool = null;
   poolConfigFingerprint = "";
+  cachedCaPath = "";
+  cachedCaContents = "";
 }
 
 module.exports = {
@@ -122,6 +166,8 @@ module.exports = {
   getPoolConfigFingerprint,
   hasPool,
   initializePool,
+  loadSslCa,
   query,
+  resolveCaPath,
   resetPoolForTests
 };

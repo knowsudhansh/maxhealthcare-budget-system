@@ -5,8 +5,12 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "verify:tidb": "node scripts/verify-tidb-connection.js",
+    "seed:tidb-demo": "node scripts/seed-tidb-demo.js",
     "test:phase3-1": "node tests/phase3-1.test.js",
     "test:phase3-2": "node tests/phase3-2.test.js",
+    "test:base-path": "node tests/base-path.test.js",
+    "test:tidb": "node tests/tidb-connection.test.js",
     "test:docker": "node tests/docker-containerization.test.js",
     "test:formatting": "node tests/financial-formatting.test.js",
     "test:planner-ui": "node tests/planner-coding-ui.test.js",
