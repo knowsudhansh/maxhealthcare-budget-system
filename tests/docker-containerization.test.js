@@ -10,7 +10,7 @@ function read(relativePath) {
 
 const dockerfile = read("Dockerfile");
 const dockerignore = read(".dockerignore");
-const compose = read("docker-compose.example.yml");
+const compose = read("compose.yaml");
 
 assert.match(dockerfile, /FROM node:22-alpine AS dependencies/);
 assert.match(dockerfile, /npm ci --omit=dev/);

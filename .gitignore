@@ -6,3 +6,6 @@ key.env.txt
 google-service-account.json
 npm-debug.log*
 *.log
+.env.docker
+*.pem
+*.key
