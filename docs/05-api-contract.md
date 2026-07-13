@@ -25,6 +25,8 @@ Base URL is chosen in `app.js`:
 | `DELETE` | `/api/allocation-matrix/by-key` | Delete matrix by year/coding/owner/distribution. | Query params. | `{ message, affectedRows }` |
 | `DELETE` | `/api/allocation-matrix/:id` | Delete matrix by numeric id. | none | `{ message, affectedRows }` |
 | `GET` | `/api/health` | Health check. | none | `{ message, mysql }` |
+| `GET` | `/health/live` | Liveness check for load balancers/process managers. | none | `{ status: "alive" }` |
+| `GET` | `/health/ready` | Readiness check; verifies database connectivity. | none | `200 { status: "ready", database: "connected" }` or `503 { status: "not-ready", database: "unavailable" }` |
 
 ## Current Contract Risks
 
@@ -35,6 +37,14 @@ Base URL is chosen in `app.js`:
 - CORS is `*`.
 - `budget_submissions` insert writes Excel/Google/MySQL in one request without transaction semantics.
 - API fields mix display names, camelCase, and snake_case.
+
+## Phase 3.1 Health Contract
+
+`GET /api/health` is retained for compatibility. Its database details are sanitized and must not expose DB host, DB name, username, password, secret ARN, SQL, stack traces, or AWS account identifiers.
+
+`GET /health/live` confirms the Node process is alive.
+
+`GET /health/ready` confirms the singleton MySQL pool can run `SELECT 1`. Traffic should not be sent to the service until readiness succeeds.
 
 ## Financial Formatting Boundary
 

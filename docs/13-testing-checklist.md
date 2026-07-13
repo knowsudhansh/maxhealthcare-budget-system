@@ -148,3 +148,36 @@ Expected visibility:
 - Placeholder: hidden.
 - Explicit `All`: visible.
 - Specific selected value: visible.
+
+## Phase 3.1 Environment And Pool Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:phase3-1
+```
+
+Coverage includes:
+
+- Missing `APP_ENV` rejection.
+- Valid development configuration.
+- Production localhost DB rejection.
+- Production wildcard CORS rejection.
+- Production `DB_SSL=false` rejection.
+- Production secret names that look like UAT/test/development/local rejected.
+- UAT secret names that look like Production rejected.
+- Valid UAT and Production configuration.
+- AWS Secrets Manager secret shape normalization and validation.
+- Secret cache behavior without real AWS credentials.
+- Singleton MySQL pool behavior with mocked `mysql2`.
+- Startup `SELECT 1` success and failure behavior.
+- Pool close behavior.
+- `/health/live` and `/health/ready` response behavior without sensitive details.
+
+Regression commands to run with Phase 3.1:
+
+```bash
+npm run test:formatting
+npm run test:planner-ui
+npm run test:clearable-fields
+```

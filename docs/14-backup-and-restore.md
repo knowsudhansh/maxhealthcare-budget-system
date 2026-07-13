@@ -17,6 +17,8 @@ For AWS:
 - Snapshot before migration.
 - Export/import procedure tested in UAT.
 
+Phase 3.1 does not provision RDS, modify production data, or change schema. It prepares the app to connect to a future UAT/Production RDS database through a validated environment and singleton connection pool.
+
 ## Restore Procedure Draft
 
 1. Stop application writes.
@@ -24,10 +26,11 @@ For AWS:
 3. Restore RDS snapshot or point-in-time backup.
 4. Run schema migration status check.
 5. Start backend.
-6. Validate `/health/ready`.
-7. Validate planner totals.
-8. Validate allocation matrix.
-9. Validate exports.
+6. Validate `/health/live`.
+7. Validate `/health/ready`.
+8. Validate planner totals.
+9. Validate allocation matrix.
+10. Validate exports.
 
 ## Current Risks
 
@@ -35,4 +38,3 @@ For AWS:
 - Excel and Google Sheets are not authoritative.
 - No migration version table exists.
 - No automated backup verification exists.
-

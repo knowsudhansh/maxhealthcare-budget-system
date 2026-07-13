@@ -47,3 +47,16 @@
 - Preserved empty/placeholder states as clear-button hidden.
 - Updated clear behavior so clearing `All` returns fields to empty/placeholder state without resetting unrelated filters.
 - Existing formulas changed: No.
+
+### Phase 3.1 Runtime Configuration And Database Connectivity
+
+- Added centralized environment validation for Development, UAT, and Production.
+- Added placeholder-only `.env` example files for development, UAT, and production.
+- Added AWS Secrets Manager compatibility for database credentials without fetching secrets per request.
+- Added a singleton MySQL connection pool with startup `SELECT 1`, TLS support, configurable limits, and graceful close.
+- Added `/health/live` and `/health/ready`; retained sanitized legacy `/api/health`.
+- Added graceful `SIGTERM` and `SIGINT` shutdown.
+- Added focused Phase 3.1 tests for environment validation, secret shape validation, pool behavior, and health responses.
+- Existing formulas changed: No.
+- Database schema modified: No.
+- Remote AWS resources created: No.

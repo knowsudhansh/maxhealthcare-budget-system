@@ -36,11 +36,26 @@ Runtime layers:
 `server.js`:
 
 - Serves static files from the repository root.
-- Reads environment variables with `dotenv`.
-- Creates one reusable MySQL pool.
+- Loads and validates environment configuration through `src/config/environment.js`.
+- Optionally loads database credentials once from AWS Secrets Manager through `src/config/secrets.js`.
+- Creates one reusable MySQL pool through `src/db/pool.js`.
+- Runs a startup `SELECT 1` readiness check before accepting HTTP traffic.
 - Exposes budget, allocation, matrix, import, and health endpoints.
 - Writes single planner saves to MySQL, optional Google Sheets, and local Excel.
 - Reads planner data from MySQL `budget_submissions`.
+- Handles `SIGTERM` and `SIGINT` by closing the HTTP server and database pool.
+
+## Phase 3.1 Runtime Configuration
+
+The backend now separates Development, UAT, and Production configuration with fail-fast validation.
+
+- Development may use direct local DB variables.
+- UAT and Production require TLS to the database.
+- UAT/Production can load DB credentials from AWS Secrets Manager.
+- Production rejects wildcard CORS, localhost DB hosts, and secret names that look like UAT/test/development/local.
+- UAT rejects secret names that look like Production.
+
+No AWS resources were provisioned in Phase 3.1. Amazon RDS remains the intended UAT/Production database target.
 
 ## Source of Truth Today
 
@@ -77,15 +92,11 @@ Current code is useful for local/UAT-style validation but is not production-read
 Major gaps:
 
 - Real database credentials exist in `.env`.
-- CORS is wildcard.
 - No authentication or authorization.
 - No centralized validation layer.
 - No centralized error response format.
 - No request IDs.
 - No audit logging.
 - No transaction wrapper for allocation create/edit.
-- No environment separation.
-- No AWS Secrets Manager integration.
 - Schema and running API are not fully aligned.
 - Business formulas are duplicated across frontend helper, UI, and export paths.
-

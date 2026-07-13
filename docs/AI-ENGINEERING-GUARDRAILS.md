@@ -104,3 +104,14 @@ Before major changes:
 - Update formula register if formulas change.
 - Update testing checklist.
 - Update changelog.
+
+## Phase 3.1 Runtime Configuration Guardrails
+
+- `APP_ENV` must be explicit.
+- Development may use direct local DB credentials.
+- UAT and Production must require `DB_SSL=true`.
+- Production must reject wildcard CORS, localhost DB hosts, and secret names that look like UAT/test/development/local.
+- UAT must reject secret names that look like Production.
+- AWS Secrets Manager values must be loaded server-side only and cached; never fetch secrets per request.
+- Do not log DB credentials, DB host/name, secret ARN, SQL, stack traces, or AWS account details in public responses.
+- Keep formulas and API field meanings unchanged while refactoring runtime infrastructure.

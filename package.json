@@ -5,11 +5,13 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "test:phase3-1": "node tests/phase3-1.test.js",
     "test:formatting": "node tests/financial-formatting.test.js",
     "test:planner-ui": "node tests/planner-coding-ui.test.js",
     "test:clearable-fields": "node tests/clearable-fields.test.js"
   },
   "dependencies": {
+    "@aws-sdk/client-secrets-manager": "^3.1085.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.22.1",

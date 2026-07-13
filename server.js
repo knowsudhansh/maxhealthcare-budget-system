@@ -2,12 +2,26 @@ const express = require("express");
 const fs = require("fs");
 const path = require("path");
 const XLSX = require("xlsx");
-const mysql = require("mysql2/promise");
-require("dotenv").config();
 const { google } = require("googleapis");
+const { loadEnvironment } = require("./src/config/environment");
+const { loadDbSecret } = require("./src/config/secrets");
+const {
+  closePool,
+  execute: mysqlExecute,
+  getPool,
+  hasPool,
+  initializePool,
+  query: mysqlQuery
+} = require("./src/db/pool");
+const {
+  checkDatabaseReady,
+  getSafeDatabaseHealth
+} = require("./src/db/health");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+let runtimeConfig = null;
+let httpServer = null;
+let isShuttingDown = false;
 
 const DATA_DIR = path.join(__dirname, "Server data");
 const FILE_PATH = path.join(DATA_DIR, "it-opex-budget-submissions.xlsx");
@@ -24,19 +38,6 @@ const GOOGLE_SHEET_ID =
 
 const GOOGLE_SHEET_TAB =
   process.env.GOOGLE_SHEET_TAB || "Sheet1";
-
-const MYSQL_CONFIG = {
-  host: process.env.MYSQL_HOST || "",
-  port: Number(process.env.MYSQL_PORT || 3306),
-  database: process.env.MYSQL_DATABASE || "",
-  user: process.env.MYSQL_USER || "",
-  password: process.env.MYSQL_PASSWORD || "",
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
-};
-
-let mysqlPool;
 
 const COLUMN_ORDER = [
   "Submitted At",
@@ -55,14 +56,36 @@ const COLUMN_ORDER = [
 
 app.use(express.json({ limit: "10mb" }));
 
+function getAllowedOrigins() {
+  if (!runtimeConfig) return [];
+  return runtimeConfig.allowedOrigins || [];
+}
+
 // CORS
 app.use((req, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const allowedOrigins = getAllowedOrigins();
+  const origin = req.headers.origin;
+  const allowWildcard = allowedOrigins.includes("*");
+  const allowOrigin =
+    allowWildcard || !origin || allowedOrigins.includes(origin);
+
+  if (allowOrigin) {
+    res.setHeader(
+      "Access-Control-Allow-Origin",
+      allowWildcard ? "*" : origin || allowedOrigins[0] || ""
+    );
+  }
+
+  res.setHeader("Vary", "Origin");
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
   if (req.method === "OPTIONS") {
-    return res.sendStatus(204);
+    return allowOrigin ? res.sendStatus(204) : res.sendStatus(403);
+  }
+
+  if (!allowOrigin) {
+    return res.status(403).json({ message: "CORS origin not allowed." });
   }
 
   next();
@@ -75,11 +98,7 @@ function sanitize(value) {
 }
 
 function mysqlConfigured() {
-  return Boolean(
-    MYSQL_CONFIG.host &&
-      MYSQL_CONFIG.database &&
-      MYSQL_CONFIG.user
-  );
+  return hasPool();
 }
 
 function hasGoogleCredentials() {
@@ -147,13 +166,7 @@ function toOrderedArray(row) {
 }
 
 async function getMysqlPool() {
-  if (!mysqlConfigured()) return null;
-
-  if (mysqlPool) return mysqlPool;
-
-  mysqlPool = mysql.createPool(MYSQL_CONFIG);
-
-  return mysqlPool;
+  return getPool();
 }
 
 async function ensureBudgetSubmissionImportColumns() {
@@ -360,32 +373,7 @@ async function findBudgetSubmissionsByImportKey(row) {
 }
 
 async function getMysqlHealth() {
-  if (!mysqlConfigured()) {
-    return {
-      configured: false,
-      connected: false,
-      database: MYSQL_CONFIG.database || ""
-    };
-  }
-
-  try {
-    const pool = await getMysqlPool();
-
-    await pool.query("SELECT 1");
-
-    return {
-      configured: true,
-      connected: true,
-      database: MYSQL_CONFIG.database
-    };
-  } catch (error) {
-    return {
-      configured: true,
-      connected: false,
-      database: MYSQL_CONFIG.database,
-      error: error.message
-    };
-  }
+  return getSafeDatabaseHealth();
 }
 
 function ensureDataDirectory() {
@@ -538,7 +526,10 @@ app.post("/api/budget-submissions", async (req, res) => {
       });
     }
 
-    const googleRange = hasGoogleCredentials()
+    const googleRange =
+      runtimeConfig &&
+      runtimeConfig.features.enableGoogleSheetsSync &&
+      hasGoogleCredentials()
       ? await appendRowToGoogleSheet(row)
       : "";
 
@@ -546,7 +537,10 @@ app.post("/api/budget-submissions", async (req, res) => {
       ? await insertBudgetSubmissionDb(row)
       : null;
 
-    const totalRows = appendRowAndSaveLocal(row);
+    const totalRows =
+      runtimeConfig && runtimeConfig.features.enableExcelMirror
+        ? appendRowAndSaveLocal(row)
+        : null;
 
     return res.status(200).json({
       message: "Saved successfully.",
@@ -1052,18 +1046,83 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
-app.listen(PORT,  "0.0.0.0", () => {
+app.get("/health/live", (req, res) => {
+  return res.status(200).json({ status: "alive" });
+});
+
+app.get("/health/ready", async (req, res) => {
+  const ready = await checkDatabaseReady();
+  if (!ready) {
+    return res.status(503).json({
+      status: "not-ready",
+      database: "unavailable"
+    });
+  }
+
+  return res.status(200).json({
+    status: "ready",
+    database: "connected"
+  });
+});
+
+async function startServer() {
+  runtimeConfig = loadEnvironment(process.env);
+  const dbSecret = await loadDbSecret(runtimeConfig);
+  await initializePool(runtimeConfig, dbSecret);
   ensureDataDirectory();
 
-  console.log(
-    `IT Opex app running at http://localhost:${PORT}`
-  );
+  httpServer = app.listen(runtimeConfig.port, "0.0.0.0", () => {
+    console.log(`IT Opex app running at http://localhost:${runtimeConfig.port}`);
+    console.log("MySQL pool initialized.");
+  });
 
-  if (mysqlConfigured()) {
-    console.log(
-      `MySQL connected: ${MYSQL_CONFIG.database}`
-    );
-  } else {
-    console.log("MySQL not configured.");
+  return httpServer;
+}
+
+async function shutdown(signal) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
+  console.log(`${signal} received. Shutting down gracefully.`);
+
+  const forceExit = setTimeout(() => {
+    console.error("Graceful shutdown timed out.");
+    process.exit(1);
+  }, 10000);
+
+  try {
+    if (httpServer) {
+      await new Promise((resolve, reject) => {
+        httpServer.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
+      });
+    }
+
+    await closePool();
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (error) {
+    clearTimeout(forceExit);
+    console.error("Shutdown failed.");
+    process.exit(1);
   }
-});
+}
+
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error(error && error.code ? error.code : "STARTUP_FAILED");
+    console.error("Server startup failed.");
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  app,
+  startServer,
+  shutdown
+};

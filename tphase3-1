@@ -1,0 +1,29 @@
+warning: in the working copy of '.gitignore', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/01-system-overview.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/05-api-contract.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/07-environment-configuration.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/08-deployment-runbook.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/09-security-model.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/11-error-handling.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/13-testing-checklist.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/14-backup-and-restore.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/AI-ENGINEERING-GUARDRAILS.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server.js', LF will be replaced by CRLF the next time Git touches it
+ .gitignore                           |   4 [32m+[m[31m-[m
+ docs/01-system-overview.md           |  23 [32m++[m[31m-[m
+ docs/05-api-contract.md              |  10 [32m+[m
+ docs/07-environment-configuration.md |  76 [32m++++++[m[31m--[m
+ docs/08-deployment-runbook.md        |  43 [32m+++[m[31m-[m
+ docs/09-security-model.md            |  22 [32m++[m[31m-[m
+ docs/11-error-handling.md            |  12 [32m+[m[31m-[m
+ docs/13-testing-checklist.md         |  33 [32m++++[m
+ docs/14-backup-and-restore.md        |  12 [32m+[m[31m-[m
+ docs/AI-ENGINEERING-GUARDRAILS.md    |  11 [32m++[m
+ docs/CHANGELOG.md                    |  13 [32m++[m
+ package-lock.json                    | 366 [32m+++++++++++++++++++++++++++++++++++[m
+ package.json                         |   2 [32m+[m
+ server.js                            | 197 [32m++++++++++++[m[31m-------[m
+ 14 files changed, 716 insertions(+), 108 deletions(-)
