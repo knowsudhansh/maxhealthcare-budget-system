@@ -131,6 +131,37 @@ Coverage includes:
 
 Manual UAT must confirm that clearing one independent filter preserves all other filters and rerenders only the affected screen state.
 
+## Enterprise Workflow Platform Test Planning
+
+The workflow platform design is documentation-only until an implementation phase starts.
+
+Future workflow implementation must add tests for:
+
+- Budget state transitions: Draft, Submitted, Under Review, Approved, Locked.
+- LE state transitions: Draft, Submitted, Validated, Approved.
+- Transfer state transitions: Draft, Submitted, Approved, Posted, Reversed.
+- Next FY transitions: Generated, Reviewed, Approved, Locked.
+- Invalid transition rejection.
+- Locked entity edit rejection.
+- Mandatory remarks for returns, variance exceptions, transfer submissions, and manual Next FY overrides.
+- Workflow history creation.
+- Notification event creation.
+- Audit event creation.
+- Permission-boundary naming without active RBAC enforcement.
+- Formula regression before and after every workflow phase.
+
+Existing formulas changed by workflow design: No.
+
+## Phase 4B Workflow Test Command
+
+Implemented:
+
+```bash
+npm run test:workflow
+```
+
+Coverage includes state-machine validation, invalid transitions, required remarks, transaction rollback, audit rollback, version conflict, idempotent retry, legacy status attachment, additive API routes, and static migration checks.
+
 ## Explicit All Clear Visibility
 
 The explicit `All` option is a selected value, not an empty placeholder.
@@ -283,3 +314,107 @@ Optional manual verification when real local credentials and CA are present:
 ```bash
 npm run verify:tidb
 ```
+
+## Phase 4A Stabilization Tests
+
+Implemented lightweight command:
+
+```bash
+npm run test:phase4a
+```
+
+Coverage includes:
+
+- Frontend initialization guards for `app.js` and `app-ui.js`.
+- One refresh lifecycle and one polling interval owner.
+- Single-flight dataset refresh protection.
+- Hidden-page polling pause.
+- Important `data-action` handlers using `withButtonActionLock`.
+- Button busy state restoration after success and failure.
+- Root and `/budget-app` API URL helper output.
+- Runtime config loading before frontend URL helpers.
+- No hardcoded root-relative `/api` fetch calls.
+- Non-submit button expectations for shell and rendered controls.
+
+## Phase 4A.1 First-Click Browser Tests
+
+Implemented browser-level command:
+
+```bash
+npm run test:first-click
+```
+
+Coverage includes:
+
+- Launching real Chrome/Edge through the Chrome DevTools Protocol.
+- Root mode and `/budget-app` mode.
+- Budget Planner Save while a numeric input has focus and a pending `change` event.
+- One physical mouse click dispatching exactly one `POST /api/budget-submissions`.
+- Budget Planner Edit opening on one physical mouse click.
+- Budget Planner Delete dispatching exactly one `DELETE /api/budget-data/:id`.
+- Allocation Submit with an input focused and an allocation combo open.
+- Allocation Matrix Edit modal opening on one physical mouse click.
+- Allocation Matrix modal Save dispatching exactly one matrix write.
+- Allocation row Delete dispatching one matrix delete and one allocation delete.
+- Dashboard filter clear buttons for Location, Coding, Financial Year, and Owner.
+- Dashboard, Planner Saved Records, Allocation Matrix, and Report export buttons.
+- Tab navigation changing views on one physical mouse click.
+- Event trace capture for `pointerdown`, `mousedown`, `change`, `focusout`, and `click`.
+- Representative keyboard focusability for action and navigation buttons.
+
+Manual regression must also test Save, Update, Edit, Delete, Submit, Cancel, Clear, Export, tab navigation, dropdown controls, Dashboard filters, Planner actions, Allocation actions, Allocation Matrix actions, and Report actions with:
+
+- a form input focused before clicking,
+- a dropdown/combo open before clicking where applicable,
+- exactly one click per action,
+- exactly one network request for write actions.
+
+## Phase 4A.3 Manual Acceptance Status
+
+Manual Chrome/Edge click-through is still required. Automated Chromium coverage is not a substitute for marking manual acceptance as passed.
+
+Before Phase 4A closes, manually record Pass/Fail/Not Applicable for:
+
+- Budget Planner Save/Edit/Delete/Cancel/Clear/Export.
+- Allocation Submit/Edit/Delete/Cancel/Clear/Coding dropdown/Cost Distribution controls.
+- Allocation Matrix Edit modal/change cell/Save/Delete/Cancel/Export.
+- Dashboard Location/Category/Coding/Financial Year/Owner clear and export.
+- Reports, Location Summary, Unit Wise Budget, Comparison, Utilization, and Saved Planner Records filters/clear/export controls.
+- All sidebar tabs.
+- Keyboard Tab, Enter, Space, and Escape behavior where supported.
+
+## Phase 4C Budget Workflow Tests
+
+Implemented lightweight commands:
+
+```bash
+npm run test:workflow-actions
+npm run test:workflow-enforcement
+npm run test:workflow-queue
+npm run test:workflow-dashboard
+```
+
+Coverage includes:
+
+- Backend-derived action availability for Not Started, Draft, Submitted, Under Review, Approved, and Locked states.
+- Feature-flagged Budget Planner edit/delete restrictions.
+- Enforcement disabled preserving legacy behavior.
+- Approval queue pagination cap and row mapping.
+- Workflow dashboard summary counts.
+- Workflow action modal/static UI affordances.
+- Transition request payload fields for expected version and idempotency key.
+
+## Phase 4D Latest Estimate Tests
+
+Implemented commands:
+
+```bash
+npm run test:le
+npm run test:le-variance
+npm run test:le-api
+npm run test:le-workflow
+npm run test:le-ui
+npm run test:le-migration
+```
+
+Coverage includes variance formulas, zero-budget behavior, severity thresholds, LE workflow transitions, migration safety, API route wiring, UI wiring, and backend-only variance calculation guardrails.

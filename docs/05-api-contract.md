@@ -111,6 +111,19 @@ Database numeric value
 
 The browser must parse formatted amount strings with `parseFinancialAmount` before API submission. The backend API contract was not changed for Phase 2.
 
+## Phase 4A Frontend Request Safety
+
+The frontend builds API URLs through `AppUrls.api(...)` in `app-utils.js`. Root mode and `APP_BASE_PATH=/budget-app` mode use the same API contract.
+
+Phase 4A does not change request or response payload meanings.
+
+Refresh ownership:
+
+- Initial load fetches `budget-data`, `allocation-data`, and `allocation-matrix` through one lifecycle in `app.js`.
+- Polling uses one interval and skips while the document is hidden.
+- Each dataset loader uses single-flight behavior to avoid duplicate concurrent calls to the same endpoint.
+- Write operations refresh only affected datasets where practical.
+
 ## Coding Normalization Boundary
 
 ```text
@@ -122,3 +135,69 @@ User search text
 ```
 
 Budget Planner coding search and suggestion deduplication are UI/source-list behaviors only. API field names and payload meanings are unchanged.
+
+## Future Enterprise Workflow API Boundary
+
+Future workflow APIs must be additive and must not replace existing planner/allocation endpoints without a compatibility phase.
+
+Design documents:
+
+- `docs/22-enterprise-api-design.md`
+- `docs/20-workflow-state-machine.md`
+- `docs/25-workflow-foundation-implementation.md`
+- `docs/26-workflow-transition-contract.md`
+
+Planned API families:
+
+- `/api/workflows`
+- `/api/latest-estimates`
+- `/api/next-fy-budgets`
+- `/api/transfers`
+- `/api/variance`
+- `/api/notifications`
+- `/api/audit`
+
+Existing formulas changed by the workflow API design: No.
+
+## Phase 4B Workflow Foundation APIs
+
+Implemented additive endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/workflows/:workflowId` | Read one workflow instance. |
+| `GET` | `/api/workflows/entity/:entityType/:entityId` | Read workflow by entity reference. |
+| `POST` | `/api/workflows` | Create a shadow workflow instance. |
+| `POST` | `/api/workflows/:workflowId/transitions` | Apply a validated state transition. |
+| `GET` | `/api/workflows/:workflowId/history` | Read workflow transition history. |
+| `GET` | `/api/budget-cycles` | List budget cycles. |
+| `POST` | `/api/budget-cycles` | Create a budget cycle. |
+
+`GET /api/budget-data` remains backward-compatible and may include additive read-only workflow fields:
+
+- `workflow_id`
+- `workflow_status`
+- `workflow_version`
+- `workflow_is_locked`
+
+Workflow state must change only through transition endpoints.
+
+## Phase 4C Budget Workflow APIs
+
+Additional implemented endpoints:
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/workflows/:workflowId/actions` | Return backend-derived actions available from the current workflow state. |
+| `GET` | `/api/workflows/queue` | Return paged Budget workflow queue rows with safe filters. |
+| `GET` | `/api/workflows/summary` | Return backend Budget workflow state/action counts. |
+
+`POST /api/workflows` is used by legacy Budget Planner rows to start workflow in `DRAFT`. `POST /api/workflows/:workflowId/transitions` remains the only state-change API and requires `action`, `expectedVersion`, `remarks`, and `idempotencyKey`.
+
+Budget workflow APIs are additive. Existing Budget Planner, Allocation, Report, and Dashboard payload meanings are unchanged.
+
+## Phase 4D Latest Estimate APIs
+
+See `docs/35-latest-estimate-api-contract.md`.
+
+Latest Estimate endpoints are additive under `/api/latest-estimates/*`. LE never overwrites Budget Planner values. The backend recalculates variance and rejects material variance saves without remarks.

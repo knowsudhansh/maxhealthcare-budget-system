@@ -35,8 +35,12 @@ The chatbot must not answer:
 Use allowlisted server-side tools only:
 
 - `getBudgetSummary`
+- `getBudgetWorkflowStatus`
 - `getUtilization`
 - `getAllocationSummary`
+- `getLeVarianceSummary`
+- `getTransferHistory`
+- `getApprovalQueue`
 - `compareAuthorizedLocations`
 - `getFormulaDefinition`
 - `getBudgetAppHelp`
@@ -57,3 +61,8 @@ The server, not the language model, must enforce user identity, role, locations,
 
 Prompt instructions are not security.
 
+## Future Workflow Context
+
+When the enterprise workflow platform is implemented, chatbot answers must remain bounded by workflow services. It may explain workflow status, approval queues, variance summaries, transfer history, formulas, and usage help only through allowlisted backend tools.
+
+The chatbot must not approve, lock, post, reverse, or modify financial records unless a later explicitly approved design adds backend-enforced action tools with authentication, RBAC, audit, and confirmation.

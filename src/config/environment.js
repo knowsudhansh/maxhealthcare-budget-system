@@ -133,7 +133,18 @@ function loadEnvironment(env = process.env) {
     },
     features: {
       enableExcelMirror: parseBoolean(env.ENABLE_EXCEL_MIRROR, true),
-      enableGoogleSheetsSync: parseBoolean(env.ENABLE_GOOGLE_SHEETS_SYNC, true)
+      enableGoogleSheetsSync: parseBoolean(env.ENABLE_GOOGLE_SHEETS_SYNC, true),
+      workflowFoundationEnabled: parseBoolean(env.WORKFLOW_FOUNDATION_ENABLED, true),
+      workflowActionsEnabled: parseBoolean(env.WORKFLOW_ACTIONS_ENABLED, true),
+      workflowLockEnforcementEnabled: parseBoolean(env.WORKFLOW_LOCK_ENFORCEMENT_ENABLED, false),
+      workflowApprovalQueueEnabled: parseBoolean(env.WORKFLOW_APPROVAL_QUEUE_ENABLED, true),
+      latestEstimateEnabled: parseBoolean(env.LATEST_ESTIMATE_ENABLED, true),
+      leWorkflowEnforcementEnabled: parseBoolean(env.LE_WORKFLOW_ENFORCEMENT_ENABLED, true),
+      leAllowLegacyBudgetSource: parseBoolean(env.LE_ALLOW_LEGACY_BUDGET_SOURCE, false),
+      leVarianceWarningPercent: Number(env.LE_VARIANCE_WARNING_PERCENT || 10),
+      leVarianceMaterialPercent: Number(env.LE_VARIANCE_MATERIAL_PERCENT || 20),
+      leVarianceWarningAmount: Number(env.LE_VARIANCE_WARNING_AMOUNT || 100000),
+      leVarianceMaterialAmount: Number(env.LE_VARIANCE_MATERIAL_AMOUNT || 500000)
     }
   };
 
@@ -191,6 +202,12 @@ function loadEnvironment(env = process.env) {
       errors.push("UAT DB_SECRET_ARN must not look like a Production secret.");
     }
   }
+
+  ["leVarianceWarningPercent", "leVarianceMaterialPercent", "leVarianceWarningAmount", "leVarianceMaterialAmount"].forEach((key) => {
+    if (!Number.isFinite(config.features[key]) || config.features[key] < 0) {
+      errors.push(`${key} must be a non-negative number.`);
+    }
+  });
 
   if (errors.length) {
     const error = new Error(`Environment validation failed: ${errors.join(" ")}`);

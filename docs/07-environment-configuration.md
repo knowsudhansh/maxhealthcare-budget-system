@@ -23,6 +23,7 @@ Observed in `server.js`:
 - `LOG_LEVEL`
 - `ENABLE_EXCEL_MIRROR`
 - `ENABLE_GOOGLE_SHEETS_SYNC`
+- `WORKFLOW_FOUNDATION_ENABLED`
 - Legacy local aliases still supported: `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, `MYSQL_PASSWORD`
 - `GOOGLE_SERVICE_ACCOUNT_EMAIL`
 - `GOOGLE_PRIVATE_KEY`
@@ -71,6 +72,7 @@ DB_CONNECT_TIMEOUT_MS=
 LOG_LEVEL=
 ENABLE_EXCEL_MIRROR=
 ENABLE_GOOGLE_SHEETS_SYNC=
+WORKFLOW_FOUNDATION_ENABLED=
 ```
 
 ## Phase 3.1 Configuration Loader
@@ -94,6 +96,8 @@ UAT and Production:
 - Must not mix UAT and Production secret names.
 
 `ENABLE_EXCEL_MIRROR` and `ENABLE_GOOGLE_SHEETS_SYNC` default to `true` to preserve current behavior unless explicitly disabled.
+
+`WORKFLOW_FOUNDATION_ENABLED` defaults to `true` for Phase 4B shadow workflow status and additive workflow APIs. It does not enable authentication, RBAC, or Planner lock enforcement.
 
 ## TiDB Cloud Starter Demo Configuration
 
@@ -147,6 +151,8 @@ window.APP_CONFIG = { basePath: "/budget-app" };
 
 No database or AWS secrets are exposed through this endpoint.
 
+Phase 4A keeps both root and path-based modes active. Frontend API calls must continue to use the runtime URL helper instead of hardcoded root paths.
+
 ## Secrets Manager Boundary
 
 `src/config/secrets.js` loads DB credentials once and caches the normalized result in memory. It accepts secret JSON fields:
@@ -168,3 +174,16 @@ Secrets are never logged. The frontend never receives DB credentials.
 - Production must not allow wildcard CORS.
 - Production must require TLS to database.
 - Secrets must be read from AWS Secrets Manager for UAT/Production.
+
+## Workflow Rollout Flags
+
+```env
+WORKFLOW_FOUNDATION_ENABLED=true
+WORKFLOW_ACTIONS_ENABLED=true
+WORKFLOW_APPROVAL_QUEUE_ENABLED=true
+WORKFLOW_LOCK_ENFORCEMENT_ENABLED=false
+```
+
+`WORKFLOW_LOCK_ENFORCEMENT_ENABLED=false` is the safe default. It leaves Planner edit/delete behavior backward-compatible while allowing workflow actions and UAT review.
+
+Setting `WORKFLOW_LOCK_ENFORCEMENT_ENABLED=true` activates backend edit/delete restrictions for submitted, under-review, approved, and locked Budget workflows. This must not be enabled before UAT approval.

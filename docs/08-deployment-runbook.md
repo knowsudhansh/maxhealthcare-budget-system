@@ -29,6 +29,16 @@ Build the image:
 docker build -t max-it-opex-budget-app:local .
 ```
 
+In corporate networks that intercept TLS, pass the corporate CA as a BuildKit secret instead of disabling TLS verification:
+
+```powershell
+docker build `
+  --secret id=corp_ca,src=C:\path\to\corporate-ca.pem `
+  -t max-it-opex-budget-app:local .
+```
+
+Do not use `strict-ssl=false` or commit the CA file.
+
 Run with an existing local `.env`:
 
 ```powershell
@@ -50,7 +60,7 @@ docker compose -f compose.yaml up --build
 
 The image:
 
-- uses `node:22-alpine`,
+- uses `node:22.21.1-bookworm-slim`,
 - installs production dependencies with `npm ci --omit=dev`,
 - runs as the non-root `node` user,
 - exposes port `3000`,
@@ -125,6 +135,15 @@ A bounded timeout prevents shutdown from hanging indefinitely.
 Phase 3.1 prepares the application for this target but does not provision AWS resources.
 Phase 3.2A prepares a Docker image for a future AWS container runtime but does not push images or create AWS infrastructure.
 
+## Phase 4B Workflow Deployment Notes
+
+- Do not apply `migrations/009_workflow_foundation.sql` to Production, UAT, TiDB demo, or AWS without explicit approval.
+- Run `npm run test:workflow` before deploying workflow-enabled code.
+- `WORKFLOW_FOUNDATION_ENABLED=true` enables additive workflow metadata and APIs but does not enforce Planner locks.
+- Use `npm run workflow:backfill:dry-run` for reporting only unless apply mode is explicitly approved.
+- Backfill apply mode requires both `--apply` and `WORKFLOW_BACKFILL_APPLY=true`.
+- Workflow history and audit logs are separate records; if audit persistence is enabled and fails, the transition transaction rolls back.
+
 ## AWS ALB Path-Based Hosting
 
 Target public URL:
@@ -154,6 +173,56 @@ Target group:
 - Success code: `200`
 
 The ALB forwards the original request path. The application handles `APP_BASE_PATH`; the ALB should not strip or rewrite the prefix.
+
+Phase 4A verification should include:
+
+```powershell
+npm run test:base-path
+npm run test:phase4a
+```
+
+Confirm root-mode and prefixed URLs work before changing hosting rules.
+
+## Phase 4A.2 Docker NPM CI Finding
+
+On the local machine, Docker Desktop reproduced this dependency-layer failure in `node:22.21.1-bookworm-slim`:
+
+```text
+npm error Exit handler never called!
+```
+
+The same failure reproduced by running `npm ci --omit=dev --no-audit --no-fund` inside the base image with only `package.json` and `package-lock.json` mounted, which isolates it from the application runtime and BuildKit cache.
+
+Attempting to install a different npm version inside the container failed with a corporate TLS certificate error. The Dockerfile already supports a `corp_ca` BuildKit secret; a successful clean build in this network requires passing the real corporate CA secret at build time. TLS verification must remain enabled.
+
+Phase 4A.3 did not find a local corporate CA file in the repository workspace. Only the TiDB CA was present, and it must not be used as a substitute for corporate npm registry trust.
+
+## Phase 4A.3 Render Verification
+
+Read-only Render verification succeeded for:
+
+- `/`
+- `/index.html`
+- `/app-config.js`
+- `/app-utils.js`
+- `/app-data.js`
+- `/app-ui.js`
+- `/app.js`
+- `/styles.css`
+- `/health/live`
+- `/health/ready`
+- `/api/health`
+- `/api/budget-data`
+- `/api/allocation-data`
+- `/api/allocation-matrix`
+
+The previous root timeout was not reproduced and is most consistent with transient Render cold-start or network delay. Browser-level read-only Render loading initialized the app without captured JavaScript exceptions or failed network events.
+
+`/budget-app/*` returned `404` on Render, so the deployed Render service is currently root-hosted rather than configured with `APP_BASE_PATH=/budget-app`.
+
+## Phase 4A Completion Gate
+
+Phase 4B must not begin unless Phase 4A completion declarations are all `Yes`, except items explicitly accepted as external infrastructure limitations by the project owner.
 
 ## TiDB Cloud Starter Temporary Demo
 

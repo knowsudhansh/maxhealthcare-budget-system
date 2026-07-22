@@ -1,4 +1,9 @@
 (function () {
+  if (typeof window !== "undefined") {
+    if (window.__OPEX_APP_INITIALIZED__) return;
+    window.__OPEX_APP_INITIALIZED__ = true;
+  }
+
   const data = window.OpexData || {};
   const ui = window.OpexUI || {};
   const state = data.state || {};
@@ -8,10 +13,29 @@
   const ALLOCATION_MATRIX_OVERRIDES_KEY = "it_opex_allocation_matrix_overrides_v1";
   const AppUrls = utils.AppUrls || {};
   const apiUrl = typeof AppUrls.api === "function" ? AppUrls.api : (path) => `api/${String(path || "").replace(/^\/+/, "")}`;
+  const withButtonActionLock =
+    typeof utils.withButtonActionLock === "function"
+      ? utils.withButtonActionLock
+      : async (_button, asyncAction) => (typeof asyncAction === "function" ? asyncAction() : undefined);
   try {
     console.log("APP_BASE_PATH:", typeof AppUrls.basePath === "function" ? AppUrls.basePath() : "");
   } catch (_e) {}
   const LIVE_SYNC_INTERVAL_MS = 15000;
+  const refreshLifecycle = {
+    timerId: null,
+    visibilityBound: false,
+    inFlight: {
+      budget: null,
+      allocationDb: null,
+      allocationMatrix: null
+    }
+  };
+  const pointerRenderGate = {
+    active: false,
+    target: null,
+    deferred: false,
+    releaseScheduled: false
+  };
 
   const DRIVER_KEYS = ["newAmc", "newProject", "annualized", "priceIncrease", "newUnit", "licenseIncrease", "rest"];
   const ALLOCATION_DISTRIBUTION_MAP = {
@@ -53,6 +77,65 @@
     return utils.formatFinancialAmount
       ? utils.formatFinancialAmount(value, { maximumFractionDigits: 2 })
       : num(value).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+  }
+
+  function workflowConfig() {
+    const config = typeof window !== "undefined" ? window.APP_CONFIG || {} : {};
+    return {
+      foundationEnabled: config.workflowFoundationEnabled !== false,
+      actionsEnabled: config.workflowActionsEnabled !== false,
+      lockEnforcementEnabled: config.workflowLockEnforcementEnabled === true,
+      approvalQueueEnabled: config.workflowApprovalQueueEnabled !== false
+    };
+  }
+
+  function parseWorkflowActions(value) {
+    if (Array.isArray(value)) return value;
+    if (!value) return [];
+    try {
+      const parsed = JSON.parse(String(value));
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (_error) {
+      return [];
+    }
+  }
+
+  function workflowIdempotencyKey(prefix, id, action) {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return `${prefix}-${crypto.randomUUID()}`;
+    }
+    return `${prefix}-${String(id || "record")}-${String(action || "action")}-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+  }
+
+  function workflowNextState(record, action) {
+    const actions = parseWorkflowActions(record && record.workflowAvailableActions);
+    const found = actions.find((item) => String(item.action || "") === String(action || ""));
+    return found ? found.nextState || "" : "";
+  }
+
+  function ensureLeState() {
+    if (!state.latestEstimate || typeof state.latestEstimate !== "object") {
+      state.latestEstimate = {
+        matrices: [],
+        activeMatrixId: "",
+        cells: [],
+        summary: null,
+        filters: { page: 1, pageSize: 25 },
+        edits: {},
+        message: ""
+      };
+    }
+    if (!state.latestEstimate.filters) state.latestEstimate.filters = { page: 1, pageSize: 25 };
+    if (!state.latestEstimate.edits) state.latestEstimate.edits = {};
+    return state.latestEstimate;
+  }
+
+  function leIdempotencyKey(prefix) {
+    return workflowIdempotencyKey(prefix, "le", "save");
+  }
+
+  function leCellKey(input) {
+    return [input.budgetEntityId || "", input.coding || "", input.location || "", input.financialYear || ""].join("||");
   }
 
   function applyFinancialFormats(sheet, moneyKeys) {
@@ -161,6 +244,53 @@
       search.set(key, String(value));
     });
     return search.toString();
+  }
+
+  function pointerRenderHoldTarget(target) {
+    if (!target || !target.closest) return null;
+    return target.closest("[data-action], [data-view], button, .combo-toggle, .combo-clear, .select-clear, .combo-option, .multi-combo-option");
+  }
+
+  function beginPointerRenderGate(event) {
+    pointerRenderGate.active = true;
+    pointerRenderGate.target = pointerRenderHoldTarget(event.target);
+    pointerRenderGate.deferred = false;
+    pointerRenderGate.releaseScheduled = false;
+  }
+
+  function shouldDeferRenderForPointer() {
+    return Boolean(pointerRenderGate.active && pointerRenderGate.target && pointerRenderGate.target.isConnected);
+  }
+
+  function releasePointerRenderGate() {
+    const shouldRender = pointerRenderGate.deferred;
+    pointerRenderGate.active = false;
+    pointerRenderGate.target = null;
+    pointerRenderGate.deferred = false;
+    pointerRenderGate.releaseScheduled = false;
+    if (shouldRender) render();
+  }
+
+  document.addEventListener("pointerdown", beginPointerRenderGate, true);
+
+  function schedulePointerRenderGateRelease() {
+    if (!pointerRenderGate.active || pointerRenderGate.releaseScheduled) return;
+    pointerRenderGate.releaseScheduled = true;
+    requestAnimationFrame(() => {
+      if (pointerRenderGate.active && pointerRenderGate.releaseScheduled) {
+        releasePointerRenderGate();
+      }
+    });
+  }
+
+  function singleFlightRefresh(key, task) {
+    if (refreshLifecycle.inFlight[key]) return refreshLifecycle.inFlight[key];
+    refreshLifecycle.inFlight[key] = Promise.resolve()
+      .then(task)
+      .finally(() => {
+        refreshLifecycle.inFlight[key] = null;
+      });
+    return refreshLifecycle.inFlight[key];
   }
 
   function buildDistributedLocationAmounts(totalBudget) {
@@ -508,7 +638,8 @@
   }
 
   async function loadAllocationDbFromServer() {
-    try {
+    return singleFlightRefresh("allocationDb", async () => {
+      try {
       const response = await fetch(apiUrl("allocation-data"));
       if (!response.ok) throw new Error(`Allocation load failed (${response.status})`);
       const rows = await response.json();
@@ -524,9 +655,10 @@
         savedAt: row.updated_at || row.savedAt || ""
       }));
       saveAllocationDb();
-    } catch (error) {
+      } catch (error) {
       console.error("Allocation DB sync failed:", error);
-    }
+      }
+    });
   }
 
   async function upsertAllocationDbToServer(entries) {
@@ -562,7 +694,8 @@
   }
 
   async function loadAllocationMatrixFromServer() {
-    try {
+    return singleFlightRefresh("allocationMatrix", async () => {
+      try {
       const response = await fetch(apiUrl("allocation-matrix"));
       if (!response.ok) throw new Error(`Allocation matrix load failed (${response.status})`);
       const rows = await response.json();
@@ -632,9 +765,10 @@
       state.allocationMatrixServerRows = rowsWithOverrides;
       state.allocationMatrixRows = mergeAllocationMatrixRows(rowsWithOverrides, state.allocationMatrixLocalRows || []);
       render();
-    } catch (error) {
+      } catch (error) {
       console.error("Allocation matrix sync failed:", error);
-    }
+      }
+    });
   }
 
   async function saveAllocationMatrixRowToServer(payload) {
@@ -1219,6 +1353,286 @@ function editRecord(id) {
     persist();
   }
 
+  async function openWorkflowHistory(recordId) {
+    const record = (state.records || []).find((row) => String(row.id) === String(recordId));
+    const workflowId = record && record.workflowId ? String(record.workflowId) : "";
+    state.workflowHistoryModal = {
+      recordId: String(recordId || ""),
+      title: `Workflow History | ${record && record.coding ? record.coding : "Budget Record"}`,
+      rows: [],
+      error: workflowId ? "" : "No workflow instance exists for this legacy record yet."
+    };
+
+    if (!workflowId) {
+      render();
+      return;
+    }
+
+    const response = await fetch(apiUrl(`workflows/${workflowId}/history`));
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Workflow history failed (${response.status}): ${message}`);
+    }
+    const payload = await response.json();
+    const rows = payload && Array.isArray(payload.data) ? payload.data : [];
+    state.workflowHistoryModal = Object.assign({}, state.workflowHistoryModal, {
+      rows,
+      error: ""
+    });
+    render();
+  }
+
+  async function refreshWorkflowPanels() {
+    const config = workflowConfig();
+    if (!config.foundationEnabled) return;
+
+    if (config.approvalQueueEnabled) {
+      try {
+        const queueResponse = await fetch(apiUrl("workflows/queue?workflowType=BUDGET&pageSize=10"));
+        if (queueResponse.ok) {
+          const payload = await queueResponse.json();
+          state.workflowApprovalQueue = payload && payload.data ? payload.data : { rows: [], total: 0, page: 1, pageSize: 10 };
+        }
+      } catch (error) {
+        console.error("Workflow queue refresh failed:", error);
+        state.workflowApprovalQueue = { rows: [], total: 0, page: 1, pageSize: 10, error: "Approval queue is not available." };
+      }
+    }
+
+    try {
+      const summaryResponse = await fetch(apiUrl("workflows/summary"));
+      if (summaryResponse.ok) {
+        const payload = await summaryResponse.json();
+        state.workflowSummary = payload && payload.data ? payload.data : { states: {}, actions: {} };
+      }
+    } catch (error) {
+      console.error("Workflow summary refresh failed:", error);
+      state.workflowSummary = { states: {}, actions: {}, error: "Workflow summary is not available." };
+    }
+  }
+
+  async function loadLeMatrices() {
+    const le = ensureLeState();
+    if (workflowConfig().foundationEnabled === false) return;
+    const response = await fetch(apiUrl("latest-estimates/matrices?pageSize=50"));
+    if (!response.ok) throw new Error(`LE matrices failed (${response.status})`);
+    const payload = await response.json();
+    le.matrices = payload && payload.data && Array.isArray(payload.data.rows) ? payload.data.rows : [];
+    if (!le.activeMatrixId && le.matrices.length) le.activeMatrixId = String(le.matrices[0].id || "");
+  }
+
+  async function loadLeCells() {
+    const le = ensureLeState();
+    if (!le.activeMatrixId) {
+      le.cells = [];
+      le.summary = null;
+      return;
+    }
+    const filters = le.filters || {};
+    const params = queryString({
+      page: filters.page || 1,
+      pageSize: filters.pageSize || 25,
+      coding: filters.coding || "",
+      location: filters.location && filters.location !== "All" ? filters.location : "",
+      severity: filters.severity && filters.severity !== "All" ? filters.severity : "",
+      changedOnly: filters.changedOnly ? "true" : "",
+      hasRemarks: filters.hasRemarks ? "true" : ""
+    });
+    const response = await fetch(apiUrl(`latest-estimates/matrices/${encodeURIComponent(le.activeMatrixId)}/cells?${params}`));
+    if (!response.ok) throw new Error(`LE cells failed (${response.status})`);
+    const payload = await response.json();
+    le.cells = payload && payload.data && Array.isArray(payload.data.rows) ? payload.data.rows : [];
+  }
+
+  async function loadLeSummary() {
+    const le = ensureLeState();
+    if (!le.activeMatrixId) return;
+    const response = await fetch(apiUrl(`latest-estimates/matrices/${encodeURIComponent(le.activeMatrixId)}/summary`));
+    if (!response.ok) throw new Error(`LE summary failed (${response.status})`);
+    const payload = await response.json();
+    le.summary = payload && payload.data ? payload.data : null;
+  }
+
+  async function refreshLatestEstimate() {
+    const le = ensureLeState();
+    try {
+      await loadLeMatrices();
+      await loadLeCells();
+      await loadLeSummary();
+      le.message = le.message || "";
+    } catch (error) {
+      console.error("Latest Estimate refresh failed:", error);
+      le.message = "Latest Estimate data is not available. Verify migration 010 and database connectivity.";
+    }
+  }
+
+  async function createLeMatrix() {
+    const le = ensureLeState();
+    const year = le.filters && le.filters.financialYear ? le.filters.financialYear : "";
+    if (!year) {
+      le.message = "Select Financial Year before creating an LE matrix.";
+      render();
+      return;
+    }
+    const response = await fetch(apiUrl("latest-estimates/matrices"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        financialYear: year,
+        matrixName: `Latest Estimate ${year}`,
+        matrixCode: `LE-${year}-${Date.now()}`
+      })
+    });
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Create LE matrix failed (${response.status}): ${message}`);
+    }
+    const payload = await response.json();
+    le.activeMatrixId = payload && payload.data && payload.data.matrix ? String(payload.data.matrix.id || "") : le.activeMatrixId;
+    le.edits = {};
+    le.message = "Latest Estimate matrix created.";
+    await refreshLatestEstimate();
+    render();
+  }
+
+  async function saveLeCells() {
+    const le = ensureLeState();
+    const matrix = (le.matrices || []).find((item) => String(item.id) === String(le.activeMatrixId));
+    const edits = le.edits || {};
+    const cells = Object.keys(edits).map((key) => {
+      const draft = edits[key] || {};
+      return {
+        budgetEntityId: draft.budgetEntityId,
+        coding: draft.coding,
+        location: draft.location,
+        financialYear: draft.financialYear,
+        latestEstimateAmount: draft.latestEstimateAmount,
+        expectedCellVersion: draft.expectedCellVersion || null,
+        remarks: draft.remarks || ""
+      };
+    });
+    if (!matrix || !cells.length) return;
+    const response = await fetch(apiUrl(`latest-estimates/matrices/${encodeURIComponent(String(matrix.id))}/cells/bulk-save`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedMatrixVersion: matrix.versionNumber,
+        idempotencyKey: leIdempotencyKey("le-bulk-save"),
+        cells
+      })
+    });
+    if (!response.ok) {
+      let message = "Latest Estimate save failed.";
+      try {
+        const payload = await response.json();
+        message = payload && payload.error && payload.error.message ? payload.error.message : message;
+      } catch (_error) {}
+      le.message = message;
+      render();
+      return;
+    }
+    le.edits = {};
+    le.message = `Saved ${cells.length} changed LE cell(s).`;
+    await refreshLatestEstimate();
+    render();
+  }
+
+  async function reloadPlannerWorkflowData() {
+    await loadLiveBudgetData(false);
+    await refreshWorkflowPanels();
+  }
+
+  async function startWorkflowForRecord(recordId) {
+    const record = (state.records || []).find((row) => String(row.id) === String(recordId));
+    if (!record) throw new Error("Budget record is not available.");
+
+    const response = await fetch(apiUrl("workflows"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        workflowType: "BUDGET",
+        entityType: "BUDGET_SUBMISSION",
+        entityId: String(record.id),
+        initialState: "DRAFT",
+        idempotencyKey: workflowIdempotencyKey("workflow-start", record.id, "CREATE")
+      })
+    });
+
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(`Start workflow failed (${response.status}): ${message}`);
+    }
+
+    await reloadPlannerWorkflowData();
+    render();
+  }
+
+  function openWorkflowTransitionModal(recordId, action) {
+    const record = (state.records || []).find((row) => String(row.id) === String(recordId));
+    if (!record || !record.workflowId) return;
+    const actions = parseWorkflowActions(record.workflowAvailableActions);
+    const actionMeta = actions.find((item) => String(item.action || "") === String(action || ""));
+    if (!actionMeta) return;
+
+    state.workflowTransitionModal = {
+      recordId: String(record.id),
+      workflowId: String(record.workflowId),
+      action: String(actionMeta.action || action),
+      actionLabel: actionMeta.label || action,
+      currentState: record.workflowStatus || "",
+      nextState: actionMeta.nextState || workflowNextState(record, action),
+      expectedVersion: Number(record.workflowVersion || 0),
+      remarksRequired: Boolean(actionMeta.remarksRequired),
+      warning: actionMeta.warning || "",
+      remarks: "",
+      error: ""
+    };
+    render();
+  }
+
+  async function confirmWorkflowTransition() {
+    const modal = state.workflowTransitionModal || {};
+    if (!modal.workflowId || !modal.action) return;
+    const remarksInput = document.getElementById("workflow-transition-remarks");
+    const remarks = remarksInput && "value" in remarksInput ? remarksInput.value : modal.remarks || "";
+
+    if (modal.remarksRequired && !String(remarks || "").trim()) {
+      state.workflowTransitionModal = Object.assign({}, modal, {
+        remarks,
+        error: "Remarks are required for this workflow action."
+      });
+      render();
+      return;
+    }
+
+    const response = await fetch(apiUrl(`workflows/${modal.workflowId}/transitions`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action: modal.action,
+        expectedVersion: modal.expectedVersion,
+        remarks,
+        idempotencyKey: workflowIdempotencyKey("workflow-transition", modal.workflowId, modal.action)
+      })
+    });
+
+    if (!response.ok) {
+      let message = "Workflow transition failed. Refresh and retry.";
+      try {
+        const payload = await response.json();
+        message = payload && payload.error && payload.error.message ? payload.error.message : message;
+      } catch (_error) {}
+      state.workflowTransitionModal = Object.assign({}, modal, { remarks, error: message });
+      await loadLiveBudgetData(false);
+      render();
+      return;
+    }
+
+    state.workflowTransitionModal = null;
+    await reloadPlannerWorkflowData();
+    render();
+  }
+
   function downloadReport() {
     if (typeof XLSX === "undefined") return;
     const records = Array.isArray(state.records) ? state.records : [];
@@ -1532,6 +1946,10 @@ function editRecord(id) {
 
 function render() {
   if (renderQueued) return;
+  if (shouldDeferRenderForPointer()) {
+    pointerRenderGate.deferred = true;
+    return;
+  }
 
   renderQueued = true;
 
@@ -1567,21 +1985,28 @@ function render() {
   document.addEventListener("click", (event) => {
     const viewButton = event.target.closest("[data-view]");
     if (viewButton) {
+      event.preventDefault();
       state.activeView = viewButton.getAttribute("data-view");
       render();
+      if (state.activeView === "latestEstimateView") {
+        refreshLatestEstimate().then(() => render()).catch((error) => console.error("Latest Estimate tab load failed:", error));
+      }
       return;
     }
 
     const actionButton = event.target.closest("[data-action]");
     if (!actionButton) return;
+    event.preventDefault();
 
     const action = actionButton.getAttribute("data-action");
     const id = actionButton.getAttribute("data-id");
 
     if (action === "save-record") {
-      syncPlannerFormFromDom();
-      if (ui.preparePlannerSave) ui.preparePlannerSave();
-      saveCurrentRecord().catch((error) => console.error("Save action failed:", error));
+      withButtonActionLock(actionButton, async () => {
+        syncPlannerFormFromDom();
+        if (ui.preparePlannerSave) ui.preparePlannerSave();
+        await saveCurrentRecord();
+      }).catch((error) => console.error("Save action failed:", error));
       return;
     }
     if (action === "clear-form") {
@@ -1595,25 +2020,119 @@ function render() {
       return;
     }
     if (action === "delete-record" && id) {
-      deleteRecord(id)
-        .then(() => render())
-        .catch((error) => console.error("Delete action failed:", error));
+      withButtonActionLock(actionButton, async () => {
+        await deleteRecord(id);
+        render();
+      }).catch((error) => console.error("Delete action failed:", error));
+      return;
+    }
+    if (action === "workflow-history" && id) {
+      withButtonActionLock(actionButton, async () => {
+        await openWorkflowHistory(id);
+      }).catch((error) => {
+        console.error("Workflow history failed:", error);
+        state.workflowHistoryModal = {
+          recordId: id,
+          title: "Workflow History",
+          rows: [],
+          error: "Workflow history is not available for this record."
+        };
+        render();
+      });
+      return;
+    }
+    if (action === "workflow-history-close") {
+      state.workflowHistoryModal = null;
+      render();
+      return;
+    }
+    if (action === "workflow-start" && id) {
+      withButtonActionLock(actionButton, async () => {
+        await startWorkflowForRecord(id);
+      }).catch((error) => {
+        console.error("Start workflow failed:", error);
+        alert("Workflow could not be started. Refresh and try again.");
+      });
+      return;
+    }
+    if (action === "workflow-transition-open" && id) {
+      openWorkflowTransitionModal(id, actionButton.getAttribute("data-workflow-action"));
+      return;
+    }
+    if (action === "workflow-transition-cancel" || action === "workflow-transition-close") {
+      state.workflowTransitionModal = null;
+      render();
+      return;
+    }
+    if (action === "workflow-transition-confirm") {
+      withButtonActionLock(actionButton, async () => {
+        await confirmWorkflowTransition();
+      }).catch((error) => {
+        console.error("Workflow transition failed:", error);
+        state.workflowTransitionModal = Object.assign({}, state.workflowTransitionModal || {}, {
+          error: "Workflow transition failed. Refresh and try again."
+        });
+        render();
+      });
+      return;
+    }
+    if (action === "workflow-panels-refresh") {
+      withButtonActionLock(actionButton, async () => {
+        await refreshWorkflowPanels();
+        render();
+      }).catch((error) => console.error("Workflow panel refresh failed:", error));
+      return;
+    }
+    if (action === "le-create-matrix") {
+      withButtonActionLock(actionButton, async () => createLeMatrix()).catch((error) => {
+        console.error("Create LE matrix failed:", error);
+        ensureLeState().message = "Latest Estimate matrix could not be created.";
+        render();
+      });
+      return;
+    }
+    if (action === "le-refresh") {
+      withButtonActionLock(actionButton, async () => {
+        await refreshLatestEstimate();
+        render();
+      }).catch((error) => console.error("Latest Estimate refresh failed:", error));
+      return;
+    }
+    if (action === "le-save-cells") {
+      withButtonActionLock(actionButton, async () => saveLeCells()).catch((error) => {
+        console.error("Save LE cells failed:", error);
+        ensureLeState().message = "Latest Estimate changed cells could not be saved.";
+        render();
+      });
+      return;
+    }
+    if (action === "le-revert-cell") {
+      const le = ensureLeState();
+      const key = actionButton.getAttribute("data-le-key");
+      if (key && le.edits) delete le.edits[key];
+      render();
       return;
     }
     if (action === "download-report") {
-      downloadReport();
+      withButtonActionLock(actionButton, async () => downloadReport()).catch((error) => console.error("Report download failed:", error));
       return;
     }
     if (action === "dashboard-export") {
-      if (ui.exportDashboardPdf) ui.exportDashboardPdf();
+      withButtonActionLock(actionButton, async () => {
+        if (ui.exportDashboardPdf) ui.exportDashboardPdf();
+      }).catch((error) => console.error("Dashboard export failed:", error));
       return;
     }
     if (action === "allocation-matrix-export") {
-      if (ui.exportAllocationMatrixWorkbook) ui.exportAllocationMatrixWorkbook();
+      withButtonActionLock(actionButton, async () => {
+        if (ui.exportAllocationMatrixWorkbook) ui.exportAllocationMatrixWorkbook();
+      }).catch((error) => console.error("Allocation export failed:", error));
       return;
     }
     if (action === "planner-saved-export") {
-      if (ui.exportPlannerSavedRecordsWorkbook) ui.exportPlannerSavedRecordsWorkbook();
+      withButtonActionLock(actionButton, async () => {
+        if (ui.exportPlannerSavedRecordsWorkbook) ui.exportPlannerSavedRecordsWorkbook();
+      }).catch((error) => console.error("Saved records export failed:", error));
       return;
     }
     if (action === "planner-budget-import") {
@@ -1670,10 +2189,7 @@ function render() {
         return;
       }
 
-      removeAllocationMatrixOverride(deleteRowRef);
-      removeLocalAllocationMatrixRow(deleteRowRef);
       const allocationEntriesToDelete = findMatchingAllocationEntries(deleteRowRef);
-      removeAllocationDbEntries(allocationEntriesToDelete);
 
       const deleteTasks = [];
       const numericMatrixId = Number(matrixId);
@@ -1724,22 +2240,27 @@ function render() {
         );
       }
 
-      if (deleteTasks.length) {
-        Promise.all(deleteTasks)
-          .then(() => Promise.all([loadAllocationDbFromServer(), loadAllocationMatrixFromServer()]))
-          .catch((error) => {
-            console.error("Allocation delete failed:", error);
-            state.allocationSubmitMessage = "Delete partially failed. Check server connection / id.";
-            render();
-          });
-      }
+      withButtonActionLock(actionButton, async () => {
+        removeAllocationMatrixOverride(deleteRowRef);
+        removeLocalAllocationMatrixRow(deleteRowRef);
+        removeAllocationDbEntries(allocationEntriesToDelete);
 
-      if (state.allocationEditModal && state.allocationEditModal.rowKey === rowKey) {
-        clearAllocationModalState();
-      }
+        if (deleteTasks.length) {
+          await Promise.all(deleteTasks);
+          await Promise.all([loadAllocationDbFromServer(), loadAllocationMatrixFromServer()]);
+        }
 
-      state.allocationSubmitMessage = `Removed Distributed allocation for ${coding || item || "selected row"} (${financialYear || "all years"}).`;
-      render();
+        if (state.allocationEditModal && state.allocationEditModal.rowKey === rowKey) {
+          clearAllocationModalState();
+        }
+
+        state.allocationSubmitMessage = `Removed Distributed allocation for ${coding || item || "selected row"} (${financialYear || "all years"}).`;
+        render();
+      }).catch((error) => {
+        console.error("Allocation delete failed:", error);
+        state.allocationSubmitMessage = "Delete failed. Check server connection / id.";
+        render();
+      });
       return;
     }
     if (action === "allocation-modal-close" || action === "allocation-modal-cancel") {
@@ -1748,6 +2269,7 @@ function render() {
       return;
     }
     if (action === "allocation-modal-save") {
+      withButtonActionLock(actionButton, async () => {
       const modal = state.allocationEditModal || {};
       const rowKey = String(modal.rowKey || "");
       if (!rowKey) return;
@@ -1827,7 +2349,7 @@ function render() {
       upsertLocalAllocationMatrixRow(optimisticRow);
 
       // Editing should only change the edited location(s). Store explicit per-location amounts (no redistribution).
-      saveAllocationMatrixRowToServer({
+      await saveAllocationMatrixRowToServer({
         financialYear: String(modal.financialYear || ""),
         coding: String(modal.coding || ""),
         item: String(modal.item || ""),
@@ -1836,14 +2358,19 @@ function render() {
         costDistribution: "Distributed",
         locationAmounts,
         locationPercents: distributionMap.percents
-      })
-        .then(() => loadAllocationMatrixFromServer())
-        .catch((error) => console.error("Allocation matrix update failed:", error));
+      });
+      await loadAllocationMatrixFromServer();
       clearAllocationModalState();
       render();
+      }).catch((error) => {
+        console.error("Allocation matrix update failed:", error);
+        state.allocationSubmitMessage = "Allocation update failed. Check server connection.";
+        render();
+      });
       return;
     }
     if (action === "allocation-submit") {
+      withButtonActionLock(actionButton, async () => {
       const controls = state.allocationControls || {};
       const mode = String(controls.mode || "Fixed Cost");
       const liveControls = Object.assign({}, controls, {
@@ -1885,6 +2412,7 @@ function render() {
         const equalShare = normalizedCodings.length ? 1 / normalizedCodings.length : 0;
 
         const dbMap = {};
+        const matrixSaveTasks = [];
         (state.allocationDb || []).forEach((entry) => {
           const entryYear = String(entry.financialYear || entry.year || "");
           const key = `${normalizeText(entry.coding)}||${normalizeText(entry.owner)}||${entryYear}`;
@@ -1930,23 +2458,25 @@ function render() {
             locationAmounts: distributionMap.amounts,
             locationPercents: distributionMap.percents
           });
-          saveAllocationMatrixRowToServer({
-            financialYear,
-            coding: item.code,
-            item: state.allocationControls.item || "",
-            owner,
-            totalBudget: targetAmount,
-            costDistribution: "Distributed",
-            locationAmounts: distributionMap.amounts,
-            locationPercents: distributionMap.percents
-          })
-            .then(() => loadAllocationMatrixFromServer())
-            .catch((error) => console.error("Allocation matrix save failed:", error));
+          matrixSaveTasks.push(
+            saveAllocationMatrixRowToServer({
+              financialYear,
+              coding: item.code,
+              item: state.allocationControls.item || "",
+              owner,
+              totalBudget: targetAmount,
+              costDistribution: "Distributed",
+              locationAmounts: distributionMap.amounts,
+              locationPercents: distributionMap.percents
+            })
+          );
         });
 
         state.allocationDb = Object.values(dbMap);
         saveAllocationDb();
-        upsertAllocationDbToServer(state.allocationDb).catch((error) => console.error("Allocation server sync failed:", error));
+        await Promise.all(matrixSaveTasks);
+        await upsertAllocationDbToServer(state.allocationDb);
+        await Promise.all([loadAllocationDbFromServer(), loadAllocationMatrixFromServer()]);
         state.allocationSubmitMessage = `Saved distribution for ${codings.join(", ")} | ${owner} | ${financialYear}. Distributed amount: ${fmt(
           batchTotal
         )}.`;
@@ -1956,7 +2486,20 @@ function render() {
         }.`;
       }
       render();
+      }).catch((error) => {
+        console.error("Allocation submit failed:", error);
+        state.allocationSubmitMessage = "Allocation submit failed. Check server connection.";
+        render();
+      });
     }
+  });
+
+  document.addEventListener("click", releasePointerRenderGate);
+  document.addEventListener("pointerup", schedulePointerRenderGateRelease, true);
+  document.addEventListener("pointercancel", releasePointerRenderGate);
+  window.addEventListener("blur", releasePointerRenderGate);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) releasePointerRenderGate();
   });
 
   document.addEventListener("change", (event) => {
@@ -2019,6 +2562,41 @@ function render() {
       const nextValue = value || "";
       state.plannerSavedFilters = Object.assign({}, state.plannerSavedFilters || {}, { [key]: nextValue });
       render();
+      return;
+    }
+
+    if (id.startsWith("le-")) {
+      const le = ensureLeState();
+      const key = id.replace("le-", "");
+      if (key === "matrix") {
+        le.activeMatrixId = String(value || "").split("|")[0] || "";
+        le.edits = {};
+        refreshLatestEstimate().then(() => render()).catch((error) => console.error("Latest Estimate matrix switch failed:", error));
+        return;
+      }
+      if (key === "changedOnly" || key === "hasRemarks") {
+        le.filters[key] = value === "true";
+      } else {
+        le.filters[key] = value || "";
+      }
+      le.filters.page = 1;
+      refreshLatestEstimate().then(() => render()).catch((error) => console.error("Latest Estimate filter failed:", error));
+      return;
+    }
+
+    if (target.classList && target.classList.contains("le-cell-input")) {
+      const le = ensureLeState();
+      const key = target.getAttribute("data-le-key") || "";
+      const field = target.getAttribute("data-le-field") || "";
+      if (!key || !field) return;
+      const draft = Object.assign({}, le.edits[key] || {});
+      draft.budgetEntityId = target.getAttribute("data-budget-id") || draft.budgetEntityId || "";
+      draft.coding = target.getAttribute("data-coding") || draft.coding || "";
+      draft.location = target.getAttribute("data-location") || draft.location || "";
+      draft.financialYear = target.getAttribute("data-year") || draft.financialYear || "";
+      draft.expectedCellVersion = target.getAttribute("data-cell-version") || draft.expectedCellVersion || null;
+      draft[field] = value;
+      le.edits[key] = draft;
       return;
     }
 
@@ -2332,6 +2910,7 @@ function render() {
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
   if (!state.activeView) state.activeView = "dashboardView";
 async function loadLiveBudgetData(logStatus) {
+  return singleFlightRefresh("budget", async () => {
   try {
 
     const response = await fetch(apiUrl("budget-data"));
@@ -2366,7 +2945,14 @@ async function loadLiveBudgetData(logStatus) {
       newUnit: Number(row.new_unit || row["new_unit"] || 0),
       licenseIncrease: Number(row.license_increase || row["license_increase"] || 0),
       rest: Number(row.rest || 0),
-      justification: row.justification || row.Justification || ""
+      justification: row.justification || row.Justification || "",
+      workflowId: row.workflow_id ? String(row.workflow_id) : "",
+      workflowStatus: row.workflow_status || "NOT_STARTED",
+      workflowVersion: row.workflow_version || "",
+      workflowLocked: Boolean(Number(row.workflow_is_locked || 0)),
+      workflowAvailableActions: parseWorkflowActions(row.workflow_available_actions),
+      workflowLastAction: row.workflow_last_action || "",
+      workflowLastTransitionAt: row.workflow_last_transition_at || ""
     }));
 
     state.records = recalculateRecords(remoteRecords);
@@ -2380,20 +2966,33 @@ console.log("Live DB connected ✅");
     console.error("API Load Error:", error);
 
   }
+  });
 }
 
-  loadLiveBudgetData(true);
-  window.setInterval(() => {
-    loadLiveBudgetData(false);
-  }, LIVE_SYNC_INTERVAL_MS);
-  loadAllocationDbFromServer();
-  window.setInterval(() => {
-    loadAllocationDbFromServer();
-  }, LIVE_SYNC_INTERVAL_MS);
-  loadAllocationMatrixFromServer();
-  window.setInterval(() => {
-    loadAllocationMatrixFromServer();
-  }, LIVE_SYNC_INTERVAL_MS);
+  function refreshAllData(logStatus) {
+    return Promise.all([
+      loadLiveBudgetData(Boolean(logStatus)),
+      loadAllocationDbFromServer(),
+      loadAllocationMatrixFromServer()
+    ]).then(() => refreshWorkflowPanels());
+  }
+
+  function startRefreshLifecycle() {
+    if (refreshLifecycle.timerId) return;
+    refreshAllData(true).finally(() => render());
+    refreshLifecycle.timerId = window.setInterval(() => {
+      if (document.hidden) return;
+      refreshAllData(false);
+    }, LIVE_SYNC_INTERVAL_MS);
+    if (!refreshLifecycle.visibilityBound) {
+      refreshLifecycle.visibilityBound = true;
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) refreshAllData(false);
+      });
+    }
+  }
+
+  startRefreshLifecycle();
   render();
 
 window.addEventListener("error", (e) => {

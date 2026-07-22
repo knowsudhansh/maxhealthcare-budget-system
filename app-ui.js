@@ -1,4 +1,9 @@
 (function () {
+  if (typeof window !== "undefined") {
+    if (window.__OPEX_UI_INITIALIZED__) return;
+    window.__OPEX_UI_INITIALIZED__ = true;
+  }
+
   const data = window.OpexData || {};
   const state = data.state || (data.state = {});
   const h = data.helpers || {};
@@ -13,6 +18,7 @@
     allocationView: "allocationContent",
     utilizationView: "utilizationContent",
     comparisonView: "comparisonContent",
+    latestEstimateView: "latestEstimateContent",
     reportView: "reportContent"
   };
 
@@ -2018,6 +2024,218 @@
       return `<span class="trend-badge trend-flat">&harr; ${esc(pct(0))}</span>`;
     }
 
+    function workflowStatusBadge(record) {
+      const status = String(record.workflowStatus || "NOT_STARTED").trim() || "NOT_STARTED";
+      const label = status === "NOT_STARTED" ? "Not Started" : status.replace(/_/g, " ");
+      const locked = record.workflowLocked ? " Locked" : "";
+      const version = record.workflowVersion ? ` v${record.workflowVersion}` : "";
+      return `<span class="workflow-status-badge workflow-status-${esc(status.toLowerCase().replace(/[^a-z0-9]+/g, "-"))}">${esc(label + locked + version)}</span>`;
+    }
+
+    function workflowFeatures() {
+      const config = typeof window !== "undefined" ? window.APP_CONFIG || {} : {};
+      return {
+        actionsEnabled: config.workflowActionsEnabled !== false,
+        lockEnforcementEnabled: config.workflowLockEnforcementEnabled === true,
+        approvalQueueEnabled: config.workflowApprovalQueueEnabled !== false
+      };
+    }
+
+    function parseWorkflowActions(value) {
+      if (Array.isArray(value)) return value;
+      if (!value) return [];
+      try {
+        const parsed = JSON.parse(String(value));
+        return Array.isArray(parsed) ? parsed : [];
+      } catch (_error) {
+        return [];
+      }
+    }
+
+    function workflowActionButtons(record) {
+      const features = workflowFeatures();
+      if (!features.actionsEnabled) return `<span class="muted">Actions disabled</span>`;
+      const actions = parseWorkflowActions(record.workflowAvailableActions);
+      if (!actions.length) return `<span class="muted">No action</span>`;
+      return actions
+        .map((item) => {
+          if (item.action === "START_WORKFLOW") {
+            return `<button type="button" class="btn btn-soft" data-action="workflow-start" data-id="${esc(record.id || "")}">${esc(item.label || "Start Workflow")}</button>`;
+          }
+          return `<button type="button" class="btn btn-soft" data-action="workflow-transition-open" data-id="${esc(record.id || "")}" data-workflow-action="${esc(item.action || "")}">${esc(item.label || item.action || "Action")}</button>`;
+        })
+        .join("");
+    }
+
+    function workflowLastTransition(record) {
+      if (!record.workflowLastAction && !record.workflowLastTransitionAt) return `<span class="muted">-</span>`;
+      return `<span>${esc(record.workflowLastAction || "")}${record.workflowLastTransitionAt ? `<br><small>${esc(record.workflowLastTransitionAt)}</small>` : ""}</span>`;
+    }
+
+    function plannerEditDeleteButtons(record) {
+      const features = workflowFeatures();
+      const restrictedStates = new Set(["SUBMITTED", "UNDER_REVIEW", "APPROVED", "LOCKED"]);
+      const status = String(record.workflowStatus || "NOT_STARTED").toUpperCase();
+      const restricted = features.lockEnforcementEnabled && restrictedStates.has(status);
+      const reason = restricted ? ` title="Restricted while workflow state is ${esc(status.replace(/_/g, " "))}" disabled` : "";
+      return `
+        <button type="button" class="btn btn-soft" data-action="edit-record" data-id="${esc(record.id || "")}"${reason}>Edit</button>
+        <button type="button" class="btn btn-soft" data-action="delete-record" data-id="${esc(record.id || "")}"${reason}>Delete</button>
+      `;
+    }
+
+    function workflowSummaryPanel() {
+      const summary = state.workflowSummary || { states: {}, actions: {} };
+      const states = summary.states || {};
+      const actions = summary.actions || {};
+      const cards = [
+        ["NOT_STARTED", "Not Started"],
+        ["DRAFT", "Draft"],
+        ["SUBMITTED", "Submitted"],
+        ["UNDER_REVIEW", "Under Review"],
+        ["APPROVED", "Approved"],
+        ["LOCKED", "Locked"],
+        ["RETURN_TO_DRAFT", "Returned"],
+        ["REJECT", "Rejected"]
+      ]
+        .map(([key, label]) => {
+          const value = key === "RETURN_TO_DRAFT" || key === "REJECT" ? actions[key] || 0 : states[key] || 0;
+          return `<div class="workflow-summary-tile"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
+        })
+        .join("");
+      return `
+        <section class="card workflow-summary-card">
+          <div class="section-head">
+            <div>
+              <h3>Budget Workflow Dashboard</h3>
+              <p>Backend summary for Budget workflow states and exception actions.</p>
+            </div>
+            <button type="button" class="btn btn-soft" data-action="workflow-panels-refresh">Refresh Workflow</button>
+          </div>
+          ${summary.error ? `<div class="allocation-submit-note">${esc(summary.error)}</div>` : ""}
+          <div class="workflow-summary-grid">${cards}</div>
+        </section>
+      `;
+    }
+
+    function approvalQueuePanel() {
+      const features = workflowFeatures();
+      if (!features.approvalQueueEnabled) return "";
+      const queue = state.workflowApprovalQueue || { rows: [], total: 0, page: 1, pageSize: 10 };
+      const rows = Array.isArray(queue.rows) ? queue.rows : [];
+      const tableRows = rows.map((item) => {
+        const workflow = item.workflow || {};
+        const record = item.record || {};
+        const actions = parseWorkflowActions(workflow.availableActions);
+        return `
+          <tr>
+            <td>${esc(record.coding || "")}</td>
+            <td>${esc(record.location || "")}</td>
+            <td>${esc(record.financialYear || "")}</td>
+            <td>${esc(fmt(record.locFyCurrent || 0))}</td>
+            <td>${esc(record.owner || "")}</td>
+            <td>${workflowStatusBadge({ workflowStatus: workflow.currentState, workflowVersion: workflow.versionNumber, workflowLocked: workflow.isLocked })}</td>
+            <td class="row-actions">
+              ${actions
+                .map(
+                  (action) =>
+                    `<button type="button" class="btn btn-soft" data-action="workflow-transition-open" data-id="${esc(record.id || workflow.entityId || "")}" data-workflow-action="${esc(action.action || "")}">${esc(action.label || action.action || "")}</button>`
+                )
+                .join("") || `<span class="muted">No action</span>`}
+            </td>
+          </tr>
+        `;
+      });
+      return tableCard(
+        "Budget Approval Queue",
+        `${esc(queue.total || rows.length || 0)} workflow item(s), server-side paged.`,
+        ["Coding", "Location", "Financial Year", "Amount", "Owner", "State", "Available Action"],
+        tableRows
+      );
+    }
+
+    function workflowHistoryModal() {
+      const modal = state.workflowHistoryModal;
+      if (!modal) return "";
+      const rows = Array.isArray(modal.rows) ? modal.rows : [];
+      const body = modal.error
+        ? `<div class="empty-state">${esc(modal.error)}</div>`
+        : rows.length
+          ? `
+            <div class="table-wrap workflow-history-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Action</th>
+                    <th>Previous State</th>
+                    <th>New State</th>
+                    <th>Remarks</th>
+                    <th>Actor</th>
+                    <th>Performed At</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rows
+                    .map(
+                      (row) => `
+                        <tr>
+                          <td>${esc(row.action || "")}</td>
+                          <td>${esc(row.fromState || "")}</td>
+                          <td>${esc(row.toState || "")}</td>
+                          <td>${esc(row.remarks || "")}</td>
+                          <td>${esc(row.performedBy || "system")}</td>
+                          <td>${esc(row.performedAt || "")}</td>
+                        </tr>
+                      `
+                    )
+                    .join("")}
+                </tbody>
+              </table>
+            </div>
+          `
+          : `<div class="empty-state">No workflow history has been recorded yet.</div>`;
+      return `
+        <div class="allocation-modal-overlay" data-action="workflow-history-close"></div>
+        <section class="allocation-modal-card workflow-history-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-history-title">
+          <div class="allocation-modal-head">
+            <div>
+              <h3 id="workflow-history-title">${esc(modal.title || "Workflow History")}</h3>
+              <p>Read-only lifecycle history. Current Planner actions remain unchanged in shadow mode.</p>
+            </div>
+            <button type="button" class="btn btn-ghost" data-action="workflow-history-close">Close</button>
+          </div>
+          ${body}
+        </section>
+      `;
+    }
+
+    function workflowTransitionModal() {
+      const modal = state.workflowTransitionModal;
+      if (!modal) return "";
+      return `
+        <div class="allocation-modal-overlay" data-action="workflow-transition-close"></div>
+        <section class="allocation-modal-card workflow-transition-modal" role="dialog" aria-modal="true" aria-labelledby="workflow-transition-title">
+          <div class="allocation-modal-head">
+            <div>
+              <h3 id="workflow-transition-title">${esc(modal.actionLabel || modal.action || "Workflow Action")}</h3>
+              <p>${esc(modal.currentState || "Current")} -> ${esc(modal.nextState || "Next")}</p>
+            </div>
+            <button type="button" class="btn btn-ghost" data-action="workflow-transition-close">Close</button>
+          </div>
+          ${modal.warning ? `<div class="allocation-submit-note">${esc(modal.warning)}</div>` : ""}
+          ${modal.error ? `<div class="allocation-submit-note error">${esc(modal.error)}</div>` : ""}
+          <label class="field-card workflow-remarks-field">
+            <span>Remarks${modal.remarksRequired ? " *" : ""}</span>
+            <textarea id="workflow-transition-remarks" class="input-control" rows="4" placeholder="Add workflow remarks">${esc(modal.remarks || "")}</textarea>
+          </label>
+          <div class="allocation-modal-actions">
+            <button type="button" class="btn btn-soft" data-action="workflow-transition-cancel">Cancel</button>
+            <button type="button" class="btn btn-primary" data-action="workflow-transition-confirm">Confirm</button>
+          </div>
+        </section>
+      `;
+    }
+
     const savedRows = savedFilteredRecords.map((record) => {
       const last = num(record.locFyLast);
       const current = num(record.locFyCurrent);
@@ -2033,9 +2251,12 @@
           <td>${plannerChangeBadge(changePct)}</td>
           <td>${esc(fmt(record.locLe || 0))}</td>
           <td>${esc(record.owner || "")}</td>
+          <td>${workflowStatusBadge(record)}</td>
+          <td>${workflowLastTransition(record)}</td>
+          <td class="row-actions workflow-row-actions">${workflowActionButtons(record)}</td>
           <td class="row-actions">
-            <button type="button" class="btn btn-soft" data-action="edit-record" data-id="${esc(record.id || "")}">Edit</button>
-            <button type="button" class="btn btn-soft" data-action="delete-record" data-id="${esc(record.id || "")}">Delete</button>
+            <button type="button" class="btn btn-soft" data-action="workflow-history" data-id="${esc(record.id || "")}">History</button>
+            ${plannerEditDeleteButtons(record)}
           </td>
         </tr>
       `;
@@ -2154,12 +2375,32 @@
         </div>
       </section>
 
+      ${workflowSummaryPanel()}
+      ${approvalQueuePanel()}
       ${tableCard(
         "Saved Records",
-        "Current planner records stored locally.",
-        ["Financial Year", "MAX Hospital", "Coding", "Item", "Current FY", "FY (Last Year)", "% Change", "LE", "Owner", "Actions"],
+        workflowFeatures().lockEnforcementEnabled
+          ? "Planner edit/delete controls are restricted by Budget workflow state."
+          : "Workflow actions are active; Planner edit/delete remains in warning-only compatibility mode.",
+        [
+          "Financial Year",
+          "MAX Hospital",
+          "Coding",
+          "Item",
+          "Current FY",
+          "FY (Last Year)",
+          "% Change",
+          "LE",
+          "Owner",
+          "Workflow Status",
+          "Last Transition",
+          "Workflow Actions",
+          "Record Actions"
+        ],
         savedRows
       )}
+      ${workflowHistoryModal()}
+      ${workflowTransitionModal()}
     `;
   }
 
@@ -3703,6 +3944,134 @@
     `;
   }
 
+  function renderLatestEstimate() {
+    const le = state.latestEstimate || {};
+    const matrices = Array.isArray(le.matrices) ? le.matrices : [];
+    const filters = le.filters || {};
+    const activeMatrix = matrices.find((matrix) => String(matrix.id) === String(le.activeMatrixId)) || matrices[0] || null;
+    const edits = le.edits || {};
+    const rows = Array.isArray(le.cells) ? le.cells : [];
+    const summary = le.summary || {};
+    const yearOptions = optionValuesForKey("financialYear");
+    const locationOptions = getAllLocations();
+
+    function editKey(row) {
+      return `${row.budgetEntityId || ""}||${row.coding || ""}||${row.location || ""}||${row.financialYear || ""}`;
+    }
+
+    function cellDraft(row, field) {
+      const draft = edits[editKey(row)] || {};
+      return Object.prototype.hasOwnProperty.call(draft, field) ? draft[field] : row[field] || "";
+    }
+
+    const matrixOptions = matrices.map((matrix) => `${matrix.id}|${matrix.matrixCode} | ${matrix.financialYear}`);
+    const matrixRows = rows.map((row) => {
+      const key = editKey(row);
+      const dirty = Boolean(edits[key]);
+      const severity = row.varianceSeverity || "ON_BUDGET";
+      return `
+        <tr class="${dirty ? "allocation-cell-edited" : ""}">
+          <td>${esc(row.coding || "")}</td>
+          <td>${esc(row.item || "")}</td>
+          <td>${esc(row.location || "")}</td>
+          <td>${esc(fmt(row.budgetAmount || 0))}</td>
+          <td>
+            <input
+              type="number"
+              class="input-control le-cell-input"
+              data-le-key="${esc(key)}"
+              data-le-field="latestEstimateAmount"
+              data-budget-id="${esc(row.budgetEntityId || "")}"
+              data-coding="${esc(row.coding || "")}"
+              data-location="${esc(row.location || "")}"
+              data-year="${esc(row.financialYear || "")}"
+              data-cell-version="${esc(row.cellVersion || "")}"
+              value="${esc(cellDraft(row, "latestEstimateAmount"))}"
+              ${activeMatrix && activeMatrix.status === "DRAFT" ? "" : "disabled"}
+            />
+          </td>
+          <td>${esc(fmt(row.varianceAmount || 0))}</td>
+          <td>${row.variancePercentage === null ? "N/A" : esc(pct(row.variancePercentage || 0))}</td>
+          <td><span class="workflow-status-badge workflow-status-${esc(String(severity).toLowerCase().replace(/[^a-z0-9]+/g, "-"))}">${esc(String(severity).replace(/_/g, " "))}</span></td>
+          <td>
+            <input
+              type="text"
+              class="input-control le-cell-input"
+              data-le-key="${esc(key)}"
+              data-le-field="remarks"
+              data-budget-id="${esc(row.budgetEntityId || "")}"
+              data-coding="${esc(row.coding || "")}"
+              data-location="${esc(row.location || "")}"
+              data-year="${esc(row.financialYear || "")}"
+              data-cell-version="${esc(row.cellVersion || "")}"
+              value="${esc(cellDraft(row, "remarks"))}"
+              ${activeMatrix && activeMatrix.status === "DRAFT" ? "" : "disabled"}
+            />
+          </td>
+          <td>${dirty ? `<button type="button" class="btn btn-soft" data-action="le-revert-cell" data-le-key="${esc(key)}">Revert</button>` : `<span class="muted">Saved</span>`}</td>
+        </tr>
+      `;
+    });
+
+    const summaryTiles = [
+      ["Total Budget", fmt(summary.totalBudget || 0)],
+      ["Total LE", fmt(summary.totalLatestEstimate || 0)],
+      ["Total Variance", fmt(summary.totalVariance || 0)],
+      ["Variance %", summary.variancePercentage === null || summary.variancePercentage === undefined ? "N/A" : pct(summary.variancePercentage)],
+      ["Changed Cells", summary.changedCells || 0],
+      ["Material", summary.materialVarianceCells || 0],
+      ["Missing Remarks", summary.missingRemarks || 0],
+      ["Invalid", summary.invalidCells || 0]
+    ]
+      .map(([label, value]) => `<div class="workflow-summary-tile"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`)
+      .join("");
+
+    return `
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Latest Estimate Matrix</h3>
+            <p>Server-paged LE editor with immutable Budget baseline and backend variance validation.</p>
+          </div>
+          <div class="dashboard-filter-meta">
+            <button type="button" class="btn btn-primary" data-action="le-create-matrix">Create Matrix</button>
+            <button type="button" class="btn btn-soft" data-action="le-refresh">Refresh</button>
+          </div>
+        </div>
+        ${le.message ? `<div class="allocation-submit-note">${esc(le.message)}</div>` : ""}
+        <div class="filter-grid">
+          ${selectCard("le-matrix", "Matrix", activeMatrix ? `${activeMatrix.id}|${activeMatrix.matrixCode} | ${activeMatrix.financialYear}` : "", matrixOptions, "Select matrix")}
+          ${selectCard("le-financialYear", "Financial Year", filters.financialYear || "", yearOptions, "Select financial year")}
+          ${selectCard("le-location", "Location", filters.location || "", locationOptions, "All")}
+          ${selectCard("le-severity", "Severity", filters.severity || "", ["ON_BUDGET", "WITHIN_THRESHOLD", "WARNING", "MATERIAL", "ZERO_BASE_INCREASE"], "All")}
+        </div>
+        <div class="form-grid-compact">
+          ${inputCard("le-coding", "Coding Search", filters.coding || "", "Search coding", "text")}
+          ${selectCard("le-changedOnly", "Changed Only", filters.changedOnly ? "true" : "", ["true"], "No")}
+          ${selectCard("le-hasRemarks", "Has Remarks", filters.hasRemarks ? "true" : "", ["true"], "No")}
+        </div>
+      </section>
+
+      <section class="card workflow-summary-card">
+        <div class="section-head">
+          <div>
+            <h3>LE Summary</h3>
+            <p>${activeMatrix ? `${esc(activeMatrix.matrixName)} | ${esc(activeMatrix.status)} | v${esc(activeMatrix.versionNumber)}` : "Create or select a matrix."}</p>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="le-save-cells" ${activeMatrix && activeMatrix.status === "DRAFT" && Object.keys(edits).length ? "" : "disabled"}>Save Changed Cells (${esc(Object.keys(edits).length)})</button>
+        </div>
+        <div class="workflow-summary-grid">${summaryTiles}</div>
+      </section>
+
+      ${tableCard(
+        "Latest Estimate Cells",
+        activeMatrix ? `Page ${esc((filters.page || 1))}. Showing changed sparse cells over Budget baseline.` : "No matrix selected.",
+        ["Coding", "Item", "Location", "Budget Amount", "Latest Estimate", "Variance Amount", "Variance %", "Severity", "Remarks", "Status"],
+        matrixRows
+      )}
+    `;
+  }
+
   function renderFallback(viewId, error) {
     const label = viewId.replace("View", "");
     const message = (error && error.message) || "Unknown render error";
@@ -3726,6 +4095,7 @@
       else if (viewId === "allocationView") html = renderAllocation();
       else if (viewId === "utilizationView") html = renderUtilization();
       else if (viewId === "comparisonView") html = renderComparison();
+      else if (viewId === "latestEstimateView") html = renderLatestEstimate();
       else if (viewId === "reportView") html = renderReport();
       else html = emptyCard("Unavailable", "This tab is not configured.");
     } catch (error) {

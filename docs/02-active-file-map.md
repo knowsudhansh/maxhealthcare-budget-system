@@ -11,6 +11,16 @@
 | `app-ui.js` | Yes | Rendering, filters, charts, exports, PDF, report rows. |
 | `app.js` | Yes | API calls, event handlers, CRUD, allocation persistence, import, refresh. |
 
+## Phase 4A UI Ownership
+
+| File | Ownership |
+|---|---|
+| `app-utils.js` | Shared URL helpers, financial formatting, coding normalization, clear-button visibility, and `withButtonActionLock`. |
+| `app-ui.js` | Render-only HTML generation plus delegated combo/select behavior. Guarded by `window.__OPEX_UI_INITIALIZED__`. |
+| `app.js` | Single application initialization, delegated `data-action` handling, write action locking, and one data refresh lifecycle. Guarded by `window.__OPEX_APP_INITIALIZED__`. |
+
+Do not attach event listeners from inside repeated render functions. Rendered controls are replaced with `innerHTML`; event handling must remain delegated or explicitly cleaned up.
+
 ## Coding Normalization Boundary
 
 ```text
@@ -36,6 +46,18 @@ Selected display value
 ```
 
 Active searchable combo fields and native select filters use shared delegated clear handlers in `app-ui.js`. Field-specific state reset remains in `app.js` so API payload meanings and persistence behavior are unchanged.
+
+## Phase 4A Refresh Boundary
+
+```text
+startRefreshLifecycle
+-> refreshAllData
+-> /api/budget-data
+-> /api/allocation-data
+-> /api/allocation-matrix
+```
+
+There is one polling interval owner in `app.js`. Dataset refreshes use single-flight guards so overlapping ticks do not duplicate requests.
 
 ## Active Backend Files
 

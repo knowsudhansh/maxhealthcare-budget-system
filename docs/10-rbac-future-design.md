@@ -35,6 +35,36 @@ RBAC is not implemented in current code. This document is a boundary for future 
 - Admin configuration.
 - Chatbot query access.
 
+## Workflow Permission Boundaries
+
+These permission names are design boundaries only. Authentication and active RBAC enforcement are not implemented.
+
+- `budget.create`
+- `budget.edit`
+- `budget.submit`
+- `budget.review`
+- `budget.approve`
+- `budget.lock`
+- `le.create`
+- `le.edit`
+- `le.bulk_update`
+- `le.validate`
+- `le.submit`
+- `le.approve`
+- `nextfy.generate`
+- `nextfy.adjust`
+- `nextfy.review`
+- `nextfy.approve`
+- `nextfy.lock`
+- `transfer.create`
+- `transfer.submit`
+- `transfer.approve`
+- `transfer.post`
+- `transfer.reverse`
+- `notification.read`
+- `audit.view`
+- `report.export`
+
 ## Enforcement Rule
 
 The backend must resolve the authenticated user's allowed locations and add those restrictions to every relevant database query.
@@ -50,4 +80,3 @@ Before implementing RBAC:
 - Add audit logging.
 - Move location list to master table/API.
 - Add query filters by authorized location.
-

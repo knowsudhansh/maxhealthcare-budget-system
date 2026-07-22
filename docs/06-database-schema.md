@@ -89,3 +89,71 @@ The TiDB demo schema follows the active `server.js` queries. Notably, `allocatio
 Do not apply optimistic-locking or audit-log proposal migrations to the TiDB demo unless explicitly requested.
 
 Temporary demo data is inserted by `scripts/seed-tidb-demo.js` into `budget_submissions` only. The approved seed rows are documented in `docs/18-tidb-demo-seed.md` and are identified by `TIDB_DEMO_SEED_V2`.
+
+## Future Enterprise Workflow Schema Boundary
+
+Workflow platform design is additive. It must not destructively alter current compatibility tables.
+
+Design document:
+
+- `docs/21-enterprise-database-design.md`
+
+Proposed future table families:
+
+- workflow: `budget_cycles`, `workflow_instances`, `workflow_history`
+- versioning: `budget_versions`
+- LE: `latest_estimate_matrices`, `latest_estimate_cells`
+- variance: `variance_logs`
+- Next FY: `next_fy_budgets`, `next_fy_budget_lines`
+- transfer: `budget_transfers`, `transfer_history`
+- tracking: `fixed_cost_changes`
+- notifications: `notifications`
+
+No workflow schema migration was applied by the design phase.
+
+## Phase 4B Workflow Foundation Migration
+
+Added migration proposal:
+
+```text
+migrations/009_workflow_foundation.sql
+```
+
+Tables:
+
+- `budget_cycles`
+- `workflow_instances`
+- `workflow_history`
+
+The migration is additive and was not applied to Production, UAT, TiDB demo, or AWS by this implementation phase.
+
+`workflow_instances` links to legacy records with:
+
+```text
+workflow_type + entity_type + entity_id + budget_cycle_id
+```
+
+No foreign key to `budget_submissions` is required in Phase 4B because the linkage is polymorphic and must remain backward-compatible.
+
+## Phase 4C Schema Impact
+
+Phase 4C adds no new migration. It uses `budget_cycles`, `workflow_instances`, and `workflow_history` from `migrations/009_workflow_foundation.sql`.
+
+The approval queue joins `workflow_instances` to `budget_submissions` by `workflow_type + entity_type + entity_id + budget_cycle_id`. Existing financial tables, columns, indexes, and formulas remain unchanged.
+
+## Phase 4D Latest Estimate Schema
+
+Added migration proposal:
+
+```text
+migrations/010_latest_estimate_foundation.sql
+```
+
+Tables:
+
+- `latest_estimate_matrices`
+- `latest_estimate_cells`
+- `variance_logs`
+- `latest_estimate_save_batches`
+
+The migration is additive and was not applied to Production, UAT, TiDB demo, or AWS by this implementation phase.

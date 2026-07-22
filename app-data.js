@@ -52,6 +52,7 @@
     allocationView: ["Allocation-Fixed and % wise", "Preview how coding and item budgets spread across selected locations."],
     utilizationView: ["Opex Budget Utilization", "Track used budget, remaining budget, and over-budget locations."],
     comparisonView: ["Comparison", "Compare last year expense, current year budget, and growth across locations."],
+    latestEstimateView: ["Latest Estimate", "Review and save Latest Estimate values against a captured budget baseline."],
     reportView: ["Report", "Download the full local report as an Excel workbook."]
   };
 
@@ -360,7 +361,14 @@
       newUnit: toNumber(pick(record, ["newUnit", "New Unit"])),
       licenseIncrease: toNumber(pick(record, ["licenseIncrease", "License Increase"])),
       rest: toNumber(pick(record, ["rest", "Rest"])),
-      justification: pick(record, ["justification", "Justification"])
+      justification: pick(record, ["justification", "Justification"]),
+      workflowId: pick(record, ["workflowId", "workflow_id"]) || "",
+      workflowStatus: pick(record, ["workflowStatus", "workflow_status"]) || "NOT_STARTED",
+      workflowVersion: pick(record, ["workflowVersion", "workflow_version"]) || "",
+      workflowLocked: Boolean(pick(record, ["workflowLocked", "workflow_is_locked"])),
+      workflowAvailableActions: pick(record, ["workflowAvailableActions", "workflow_available_actions"]) || [],
+      workflowLastAction: pick(record, ["workflowLastAction", "workflow_last_action"]) || "",
+      workflowLastTransitionAt: pick(record, ["workflowLastTransitionAt", "workflow_last_transition_at"]) || ""
     };
   }
 
@@ -520,6 +528,15 @@
     state: {
       records: loadRecords(),
       activeView: "dashboardView",
+      latestEstimate: {
+        matrices: [],
+        activeMatrixId: "",
+        cells: [],
+        summary: null,
+        filters: { coding: "", location: "", severity: "", changedOnly: false, hasRemarks: false, page: 1, pageSize: 25 },
+        edits: {},
+        message: ""
+      },
       editId: null,
       dashboardFilters: { location: "", categoryIt: "", financialYear: "", owner: "" },
       summaryFilters: { location: "", financialYear: "" },

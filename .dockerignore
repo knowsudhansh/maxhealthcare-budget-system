@@ -7,8 +7,14 @@ npm-debug.log*
 .env
 .env.local
 .env.*.local
+.env.docker
 key.env.txt
 google-service-account.json
+*.pem
+*.key
+certs/*.pem
+certs/*.crt
+certs/*.cer
 server data/
 Server data/
 backend/node_modules

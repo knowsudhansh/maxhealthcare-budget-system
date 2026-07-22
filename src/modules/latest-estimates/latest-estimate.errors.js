@@ -1,0 +1,27 @@
+const { AppError } = require("../../errors/app-error");
+
+const LE_ERROR_CODES = Object.freeze({
+  LE_MATRIX_NOT_FOUND: "LE_MATRIX_NOT_FOUND",
+  LE_MATRIX_VERSION_CONFLICT: "LE_MATRIX_VERSION_CONFLICT",
+  LE_CELL_VERSION_CONFLICT: "LE_CELL_VERSION_CONFLICT",
+  LE_MATRIX_NOT_EDITABLE: "LE_MATRIX_NOT_EDITABLE",
+  LE_INVALID_AMOUNT: "LE_INVALID_AMOUNT",
+  LE_VARIANCE_REMARKS_REQUIRED: "LE_VARIANCE_REMARKS_REQUIRED",
+  LE_DUPLICATE_SAVE_REQUEST: "LE_DUPLICATE_SAVE_REQUEST",
+  LE_INVALID_CELL_REFERENCE: "LE_INVALID_CELL_REFERENCE",
+  LE_SOURCE_BUDGET_NOT_ELIGIBLE: "LE_SOURCE_BUDGET_NOT_ELIGIBLE"
+});
+
+function leError(statusCode, publicCode, publicMessage, details) {
+  return new AppError({
+    statusCode,
+    publicCode,
+    publicMessage,
+    details
+  });
+}
+
+module.exports = {
+  LE_ERROR_CODES,
+  leError
+};

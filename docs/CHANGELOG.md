@@ -2,6 +2,52 @@
 
 ## Unreleased
 
+### Enterprise Workflow Platform Design
+
+- Added enterprise workflow platform architecture documentation.
+- Documented Budget, LE, Transfer, and Next FY lifecycle states and transition rules.
+- Proposed additive workflow, LE matrix, variance, Next FY, transfer, notification, and fixed-cost tracking tables.
+- Added REST API design and permission-boundary names for future RBAC mapping.
+- Added frontend/backend modular architecture recommendations and implementation roadmap.
+- Added ADR-001: build workflow foundation before authentication and RBAC.
+- Existing formulas changed: No.
+- Database data modified: No.
+
+### Phase 4B Workflow Foundation
+
+- Added additive workflow foundation migration proposal `009_workflow_foundation.sql`.
+- Added reusable backend workflow module with state machine, repository, service, controller, routes, validation, and workflow-specific errors.
+- Added workflow APIs for budget cycles, workflow instances, transitions, and history.
+- Added optimistic version checks and idempotent transition retry handling.
+- Added transaction-bound workflow history and optional audit integration.
+- Added Budget Planner read-only workflow status and history modal in shadow mode.
+- Added dry-run workflow backfill command.
+- Added workflow foundation tests.
+- Existing formulas changed: No.
+- Workflow locks enforced on Planner: No.
+- Authentication/RBAC implemented: No.
+
+### Phase 4C Budget Workflow Actions
+
+- Added Budget workflow action metadata, permission-boundary constants, and notification event names.
+- Added backend-derived available actions, approval queue, and workflow summary APIs.
+- Added feature-flagged backend Planner edit/delete enforcement with enforcement disabled by default.
+- Added Budget Planner Start Workflow, transition modal, workflow action panel, workflow dashboard summary, and approval queue UI.
+- Added workflow action/enforcement/queue/dashboard test commands.
+- Existing formulas changed: No.
+- Authentication/RBAC implemented: No.
+
+### Phase 4D Latest Estimate Platform
+
+- Added additive Latest Estimate schema proposal with sparse cells and variance logs.
+- Added Latest Estimate backend module with variance calculation, bulk save, matrix summary, and workflow transitions.
+- Added Latest Estimate tab with server-paged row editor and changed-cell save.
+- Added LE feature flags and variance threshold configuration.
+- Added Phase 4D tests and documentation set.
+- Existing Budget values modified by LE: No.
+- Existing formulas changed: No.
+- Authentication/RBAC implemented: No.
+
 ### Documentation
 
 - Added current-state system documentation for UAT/Production preparation.
@@ -111,4 +157,40 @@
 - Added marker-scoped V2 seed updates with old demo marker cleanup only.
 - Documented the approved amount/location strategy in `docs/18-tidb-demo-seed.md`.
 - Extended TiDB tests for approved codes, metadata, idempotency, Owner/Owner1 separation, and manual-row protection.
+- Existing formulas changed: No.
+
+### Phase 4A Stabilization
+
+- Added idempotent frontend initialization guards for `app.js` and `app-ui.js`.
+- Added `withButtonActionLock` for single-click async button reliability.
+- Consolidated budget/allocation refresh into one lifecycle with single-flight request protection and hidden-page polling pause.
+- Locked Budget Planner save/delete, export, Allocation delete/edit-save, and Allocation submit actions against duplicate concurrent requests.
+- Added focused `npm run test:phase4a` coverage.
+- Added UI behavior, path-routing, and AI context documentation.
+- Existing formulas changed: No.
+
+### Phase 4A.1 Browser First-Click Fix
+
+- Confirmed the remaining lost-click class with a real Chrome/Edge browser test and event trace.
+- Added a pointer render gate so blur/change-driven full renders cannot replace an action button between `pointerdown` and `click`.
+- Added `npm run test:first-click` browser coverage for root and `/budget-app` mode.
+- Verified one Budget Planner Save click sends exactly one write request, Edit opens on one click, and Delete sends exactly one delete request.
+- Existing formulas changed: No.
+
+### Phase 4A.2 UI Acceptance Expansion
+
+- Hardened the pointer render gate with pointerup fallback release plus window/visibility cancellation paths.
+- Expanded real-browser one-click coverage to Allocation Submit, Allocation Matrix edit/save/delete/export, Dashboard clear/export, Planner saved export, Report export, and representative tab navigation.
+- Added network-request counting to verify one click does not duplicate critical write requests.
+- Reproduced the Docker `npm ci` failure outside the Dockerfile and documented the corporate-CA/TLS build requirement.
+- Existing formulas changed: No.
+
+### Phase 4A.3 Acceptance Evidence
+
+- Rechecked Render root/static/API routes read-only; the previous root timeout was not reproduced.
+- Confirmed Render browser initialization without captured JavaScript exceptions or failed network events.
+- Documented that Render is currently root-hosted because `/budget-app/*` returns `404`.
+- Confirmed local startup with current `.env` is blocked by TiDB credential rejection; credentials were not changed or printed.
+- Documented that Docker build remains blocked until the actual corporate CA is supplied through BuildKit `corp_ca`.
+- Added the explicit Phase 4B gate: do not begin Phase 4B unless Phase 4A declarations are all `Yes` or externally waived.
 - Existing formulas changed: No.

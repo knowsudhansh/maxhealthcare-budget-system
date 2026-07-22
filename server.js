@@ -34,6 +34,9 @@ const {
   validateAllocationMatrixPayload,
   validateAllocationRecordPayload
 } = require("./src/validation/allocation");
+const { createWorkflowRouter } = require("./src/modules/workflow/workflow.routes");
+const { createLatestEstimateRouter } = require("./src/modules/latest-estimates/latest-estimate.routes");
+const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
 let runtimeConfig = null;
@@ -138,9 +141,35 @@ app.use((req, res, next) => {
 
 app.get("/app-config.js", (req, res) => {
   const basePath = getCurrentBasePath();
+  const workflowFoundationEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.workflowFoundationEnabled)
+    : process.env.WORKFLOW_FOUNDATION_ENABLED !== "false";
+  const workflowActionsEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.workflowActionsEnabled)
+    : process.env.WORKFLOW_ACTIONS_ENABLED !== "false";
+  const workflowLockEnforcementEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.workflowLockEnforcementEnabled)
+    : process.env.WORKFLOW_LOCK_ENFORCEMENT_ENABLED === "true";
+  const workflowApprovalQueueEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.workflowApprovalQueueEnabled)
+    : process.env.WORKFLOW_APPROVAL_QUEUE_ENABLED !== "false";
+  const latestEstimateEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.latestEstimateEnabled)
+    : process.env.LATEST_ESTIMATE_ENABLED !== "false";
+  const leWorkflowEnforcementEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.leWorkflowEnforcementEnabled)
+    : process.env.LE_WORKFLOW_ENFORCEMENT_ENABLED !== "false";
   res.type("application/javascript");
   res.setHeader("Cache-Control", "no-store");
-  return res.send(`window.APP_CONFIG = ${JSON.stringify({ basePath })};\n`);
+  return res.send(`window.APP_CONFIG = ${JSON.stringify({
+    basePath,
+    workflowFoundationEnabled,
+    workflowActionsEnabled,
+    workflowLockEnforcementEnabled,
+    workflowApprovalQueueEnabled,
+    latestEstimateEnabled,
+    leWorkflowEnforcementEnabled
+  })};\n`);
 });
 
 const STATIC_FILES = new Set([
@@ -165,6 +194,9 @@ app.get("/:asset", (req, res, next) => {
   if (!STATIC_FILES.has(asset)) return next();
   return sendStaticFile(res, asset);
 });
+
+app.use("/api", createWorkflowRouter());
+app.use("/api", createLatestEstimateRouter());
 
 function sanitize(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -204,6 +236,10 @@ function toOrderedArray(row) {
 
 async function getMysqlPool() {
   return getPool();
+}
+
+function workflowLockEnforcementEnabled() {
+  return Boolean(runtimeConfig && runtimeConfig.features && runtimeConfig.features.workflowLockEnforcementEnabled);
 }
 
 async function ensureBudgetSubmissionImportColumns() {
@@ -670,7 +706,11 @@ app.get("/api/budget-data", async (req, res) => {
       ORDER BY id DESC
     `);
 
-    res.json(rows);
+    const rowsWithWorkflow = await attachBudgetWorkflowStatuses(rows, {
+      enabled: !runtimeConfig || !runtimeConfig.features ? true : runtimeConfig.features.workflowFoundationEnabled
+    });
+
+    res.json(rowsWithWorkflow);
   } catch (error) {
     res.status(500).json({
       message: error.message
@@ -681,6 +721,7 @@ app.get("/api/budget-data", async (req, res) => {
 app.put("/api/budget-data/:id", async (req, res, next) => {
   try {
     const id = validateBudgetId(req.params.id);
+    await assertBudgetRecordMutable(id, "edit", { enforce: workflowLockEnforcementEnabled(), requestId: req.requestId });
     const row = normalizeSubmission(req.body || {});
     const affectedRows = await updateBudgetSubmissionDb(id, row);
     if (!affectedRows) {
@@ -695,6 +736,7 @@ app.put("/api/budget-data/:id", async (req, res, next) => {
 app.delete("/api/budget-data/:id", async (req, res, next) => {
   try {
     const id = validateBudgetId(req.params.id);
+    await assertBudgetRecordMutable(id, "delete", { enforce: workflowLockEnforcementEnabled(), requestId: req.requestId });
     const affectedRows = await deleteBudgetSubmissionDb(id);
     if (!affectedRows) {
       throw notFoundError("Record not found.");

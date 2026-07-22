@@ -170,6 +170,34 @@
     return buildAppUrl(endpointPath);
   }
 
+  const buttonActionLocks = typeof WeakSet === "function" ? new WeakSet() : null;
+
+  async function withButtonActionLock(button, asyncAction) {
+    if (typeof asyncAction !== "function") return undefined;
+    const canLockButton = button && typeof button === "object";
+    if (canLockButton && buttonActionLocks && buttonActionLocks.has(button)) {
+      return undefined;
+    }
+
+    const hadDisabled = canLockButton && Object.prototype.hasOwnProperty.call(button, "disabled") ? button.disabled : undefined;
+    const previousBusy = canLockButton && button.getAttribute ? button.getAttribute("aria-busy") : null;
+
+    if (canLockButton && buttonActionLocks) buttonActionLocks.add(button);
+    if (canLockButton && "disabled" in button) button.disabled = true;
+    if (canLockButton && button.setAttribute) button.setAttribute("aria-busy", "true");
+
+    try {
+      return await asyncAction();
+    } finally {
+      if (canLockButton && buttonActionLocks) buttonActionLocks.delete(button);
+      if (canLockButton && "disabled" in button && hadDisabled !== undefined) button.disabled = hadDisabled;
+      if (canLockButton && button.setAttribute) {
+        if (previousBusy === null) button.removeAttribute("aria-busy");
+        else button.setAttribute("aria-busy", previousBusy);
+      }
+    }
+  }
+
   const AppUrls = {
     app: buildAppUrl,
     api: buildApiUrl,
@@ -190,6 +218,7 @@
     normalizeSearchKey,
     shouldShowClearButton,
     uniqueCodingValues,
-    parseFinancialAmount
+    parseFinancialAmount,
+    withButtonActionLock
   };
 });
