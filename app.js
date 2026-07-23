@@ -85,7 +85,10 @@
       foundationEnabled: config.workflowFoundationEnabled !== false,
       actionsEnabled: config.workflowActionsEnabled !== false,
       lockEnforcementEnabled: config.workflowLockEnforcementEnabled === true,
-      approvalQueueEnabled: config.workflowApprovalQueueEnabled !== false
+      approvalQueueEnabled: config.workflowApprovalQueueEnabled !== false,
+      transferModuleEnabled: config.transferModuleEnabled !== false,
+      transferPostingEnabled: config.transferPostingEnabled !== false,
+      transferReversalEnabled: config.transferReversalEnabled !== false
     };
   }
 
@@ -162,6 +165,31 @@
 
   function nextFyIdempotencyKey(prefix) {
     return workflowIdempotencyKey(prefix, "nextfy", "action");
+  }
+
+  function ensureTransferState() {
+    if (!state.transfers || typeof state.transfers !== "object") {
+      state.transfers = {
+        requests: [],
+        activeTransferId: "",
+        dashboard: null,
+        workingBudget: [],
+        history: [],
+        filters: { page: 1, pageSize: 25 },
+        form: { transferType: "PARTIAL_TRANSFER", priority: "NORMAL" },
+        message: ""
+      };
+    }
+    if (!state.transfers.filters) state.transfers.filters = { page: 1, pageSize: 25 };
+    if (!state.transfers.form) state.transfers.form = { transferType: "PARTIAL_TRANSFER", priority: "NORMAL" };
+    if (!Array.isArray(state.transfers.requests)) state.transfers.requests = [];
+    if (!Array.isArray(state.transfers.workingBudget)) state.transfers.workingBudget = [];
+    if (!Array.isArray(state.transfers.history)) state.transfers.history = [];
+    return state.transfers;
+  }
+
+  function transferIdempotencyKey(prefix, id, action) {
+    return workflowIdempotencyKey(prefix, id || "transfer", action || "action");
   }
 
   function applyFinancialFormats(sheet, moneyKeys) {
@@ -1712,6 +1740,183 @@ function editRecord(id) {
     render();
   }
 
+  async function loadTransfers() {
+    const transfer = ensureTransferState();
+    if (workflowConfig().transferModuleEnabled === false) return;
+    const filters = transfer.filters || {};
+    const params = new URLSearchParams();
+    if (filters.status) params.set("status", filters.status);
+    if (filters.transferType) params.set("transferType", filters.transferType);
+    if (filters.financialYear) params.set("financialYear", filters.financialYear);
+    if (filters.coding) params.set("coding", filters.coding);
+    if (filters.location) params.set("location", filters.location);
+    params.set("page", filters.page || 1);
+    params.set("pageSize", filters.pageSize || 25);
+    const response = await fetch(apiUrl(`transfers?${params.toString()}`));
+    if (!response.ok) throw new Error("Transfers could not be loaded.");
+    const payload = await response.json();
+    transfer.requests = payload && payload.data && Array.isArray(payload.data.rows) ? payload.data.rows : [];
+    if (!transfer.activeTransferId && transfer.requests[0]) transfer.activeTransferId = String(transfer.requests[0].id);
+  }
+
+  async function loadTransferDashboard() {
+    const transfer = ensureTransferState();
+    const response = await fetch(apiUrl("transfers/dashboard"));
+    if (!response.ok) throw new Error("Transfer dashboard could not be loaded.");
+    const payload = await response.json();
+    transfer.dashboard = payload && payload.data ? payload.data : null;
+  }
+
+  async function loadWorkingBudget() {
+    const transfer = ensureTransferState();
+    const filters = transfer.filters || {};
+    const params = new URLSearchParams();
+    if (filters.financialYear) params.set("financialYear", filters.financialYear);
+    if (filters.coding) params.set("coding", filters.coding);
+    if (filters.location) params.set("location", filters.location);
+    params.set("page", filters.page || 1);
+    params.set("pageSize", filters.pageSize || 25);
+    const response = await fetch(apiUrl(`transfers/working-budget?${params.toString()}`));
+    if (!response.ok) throw new Error("Working budget could not be loaded.");
+    const payload = await response.json();
+    transfer.workingBudget = payload && payload.data && Array.isArray(payload.data) ? payload.data : [];
+  }
+
+  async function loadTransferHistory() {
+    const transfer = ensureTransferState();
+    if (!transfer.activeTransferId) {
+      transfer.history = [];
+      return;
+    }
+    const response = await fetch(apiUrl(`transfers/${encodeURIComponent(transfer.activeTransferId)}/history`));
+    if (!response.ok) throw new Error("Transfer history could not be loaded.");
+    const payload = await response.json();
+    transfer.history = payload && Array.isArray(payload.data) ? payload.data : [];
+  }
+
+  async function refreshTransfers() {
+    const transfer = ensureTransferState();
+    if (workflowConfig().transferModuleEnabled === false) return;
+    try {
+      await loadTransfers();
+      await Promise.all([loadTransferDashboard(), loadWorkingBudget(), loadTransferHistory()]);
+      transfer.message = transfer.message || "";
+    } catch (error) {
+      console.error("Transfer refresh failed:", error);
+      transfer.message = "Transfer data could not be loaded. Verify migration 012 and database connectivity.";
+    }
+  }
+
+  async function createTransferRequest() {
+    const transfer = ensureTransferState();
+    const form = transfer.form || {};
+    const response = await fetch(apiUrl("transfers"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        transferNumber: `TRF-${form.financialYear || "FY"}-${Date.now()}`,
+        transferType: form.transferType || "PARTIAL_TRANSFER",
+        financialYear: form.financialYear || "",
+        priority: form.priority || "NORMAL",
+        reason: form.reason || "",
+        remarks: form.remarks || "",
+        idempotencyKey: transferIdempotencyKey("transfer-create", "new", "CREATE"),
+        lines: [
+          {
+            sourceBudgetLineId: form.sourceBudgetLineId,
+            destinationBudgetLineId: form.destinationBudgetLineId,
+            transferAmount: form.transferAmount,
+            transferType: form.transferType || "PARTIAL_TRANSFER",
+            remarks: form.lineRemarks || form.remarks || ""
+          }
+        ]
+      })
+    });
+    if (!response.ok) {
+      let message = "Transfer request could not be created.";
+      try {
+        const payload = await response.json();
+        message = payload && payload.error && payload.error.message ? payload.error.message : message;
+      } catch (_error) {}
+      transfer.message = message;
+      render();
+      return;
+    }
+    const payload = await response.json();
+    const created = payload && payload.data && payload.data.request ? payload.data.request : null;
+    transfer.activeTransferId = created ? String(created.id) : transfer.activeTransferId;
+    transfer.message = "Transfer request created in Draft.";
+    await refreshTransfers();
+    render();
+  }
+
+  async function performTransferAction(actionName, endpointAction, requiresRemarks) {
+    const transfer = ensureTransferState();
+    const active = (transfer.requests || []).find((item) => String(item.id) === String(transfer.activeTransferId));
+    if (!active) return;
+    const remarksInput = document.getElementById("transfer-actionRemarks");
+    const remarks = remarksInput && "value" in remarksInput ? remarksInput.value : "";
+    if (requiresRemarks && !String(remarks || "").trim()) {
+      transfer.message = "Remarks are required for this transfer action.";
+      render();
+      return;
+    }
+    const response = await fetch(apiUrl(`transfers/${encodeURIComponent(String(active.id))}/${endpointAction}`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: active.versionNumber,
+        remarks: remarks || `${actionName} transfer request.`,
+        idempotencyKey: transferIdempotencyKey("transfer-action", active.id, endpointAction)
+      })
+    });
+    if (!response.ok) {
+      let message = `${actionName} failed. Refresh and retry.`;
+      try {
+        const payload = await response.json();
+        message = payload && payload.error && payload.error.message ? payload.error.message : message;
+      } catch (_error) {}
+      transfer.message = message;
+      await refreshTransfers();
+      render();
+      return;
+    }
+    transfer.message = `${actionName} completed.`;
+    await refreshTransfers();
+    render();
+  }
+
+  function exportTransfersWorkbook() {
+    if (typeof XLSX === "undefined") return;
+    const transfer = ensureTransferState();
+    const workbook = XLSX.utils.book_new();
+    const requestRows = (transfer.requests || []).map((row) => ({
+      transferNumber: row.transferNumber || "",
+      transferType: row.transferType || "",
+      financialYear: row.financialYear || "",
+      status: row.status || "",
+      amount: num(row.totalTransferAmount || 0),
+      version: row.versionNumber || ""
+    }));
+    const balanceRows = (transfer.workingBudget || []).map((row) => ({
+      coding: row.coding || "",
+      location: row.location || "",
+      owner: row.owner || "",
+      originalBudget: num(row.original_budget || row.originalBudget || 0),
+      incomingTransfers: num(row.incoming_transfers || row.incomingTransfers || 0),
+      outgoingTransfers: num(row.outgoing_transfers || row.outgoingTransfers || 0),
+      workingBudget: num(row.working_budget || row.workingBudget || 0),
+      availableBalance: num(row.available_balance || row.availableBalance || 0)
+    }));
+    const requestSheet = XLSX.utils.json_to_sheet(requestRows.length ? requestRows : [{ Message: "No transfers." }]);
+    const balanceSheet = XLSX.utils.json_to_sheet(balanceRows.length ? balanceRows : [{ Message: "No working balances." }]);
+    applyFinancialFormats(requestSheet, ["amount"]);
+    applyFinancialFormats(balanceSheet, ["originalBudget", "incomingTransfers", "outgoingTransfers", "workingBudget", "availableBalance"]);
+    XLSX.utils.book_append_sheet(workbook, requestSheet, "Transfer Requests");
+    XLSX.utils.book_append_sheet(workbook, balanceSheet, "Working Budget");
+    XLSX.writeFile(workbook, "budget-transfer-ledger.xlsx");
+  }
+
   async function reloadPlannerWorkflowData() {
     await loadLiveBudgetData(false);
     await refreshWorkflowPanels();
@@ -2169,6 +2374,9 @@ function render() {
       if (state.activeView === "nextFyView") {
         refreshNextFy().then(() => render()).catch((error) => console.error("Next FY tab load failed:", error));
       }
+      if (state.activeView === "transferView") {
+        refreshTransfers().then(() => render()).catch((error) => console.error("Transfer tab load failed:", error));
+      }
       return;
     }
 
@@ -2343,6 +2551,68 @@ function render() {
       const lineId = actionButton.getAttribute("data-nextfy-line-id");
       if (lineId && nextFy.edits) delete nextFy.edits[lineId];
       render();
+      return;
+    }
+    if (action === "transfer-refresh") {
+      withButtonActionLock(actionButton, async () => {
+        await refreshTransfers();
+        render();
+      }).catch((error) => console.error("Transfer refresh failed:", error));
+      return;
+    }
+    if (action === "transfer-create") {
+      withButtonActionLock(actionButton, async () => createTransferRequest()).catch((error) => {
+        console.error("Transfer create failed:", error);
+        ensureTransferState().message = "Transfer request could not be created.";
+        render();
+      });
+      return;
+    }
+    if (action === "transfer-select" && id) {
+      const transfer = ensureTransferState();
+      transfer.activeTransferId = String(id);
+      loadTransferHistory().then(() => render()).catch((error) => console.error("Transfer history load failed:", error));
+      return;
+    }
+    if (action === "transfer-history" && id) {
+      const transfer = ensureTransferState();
+      transfer.activeTransferId = String(id);
+      withButtonActionLock(actionButton, async () => {
+        await loadTransferHistory();
+        render();
+      }).catch((error) => console.error("Transfer history failed:", error));
+      return;
+    }
+    if (action === "transfer-submit") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Submit", "submit", false)).catch((error) => console.error("Transfer submit failed:", error));
+      return;
+    }
+    if (action === "transfer-review") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Review start", "review", false)).catch((error) => console.error("Transfer review failed:", error));
+      return;
+    }
+    if (action === "transfer-approve") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Approve", "approve", false)).catch((error) => console.error("Transfer approval failed:", error));
+      return;
+    }
+    if (action === "transfer-return") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Return", "return", true)).catch((error) => console.error("Transfer return failed:", error));
+      return;
+    }
+    if (action === "transfer-reject") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Reject", "reject", true)).catch((error) => console.error("Transfer reject failed:", error));
+      return;
+    }
+    if (action === "transfer-post") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Post", "post", true)).catch((error) => console.error("Transfer post failed:", error));
+      return;
+    }
+    if (action === "transfer-reverse") {
+      withButtonActionLock(actionButton, async () => performTransferAction("Reverse", "reverse", true)).catch((error) => console.error("Transfer reverse failed:", error));
+      return;
+    }
+    if (action === "transfer-export") {
+      withButtonActionLock(actionButton, async () => exportTransfersWorkbook()).catch((error) => console.error("Transfer export failed:", error));
       return;
     }
     if (action === "download-report") {
@@ -2884,6 +3154,42 @@ function render() {
       return;
     }
 
+    if (id.startsWith("transfer-")) {
+      const transfer = ensureTransferState();
+      const key = id.replace("transfer-", "");
+      if (key === "activeTransfer") {
+        transfer.activeTransferId = String(value || "").split("|")[0] || "";
+        loadTransferHistory().then(() => render()).catch((error) => console.error("Transfer selection failed:", error));
+        return;
+      }
+      if (key.startsWith("filter")) {
+        const filterKey = key.replace("filter", "");
+        const normalizedFilterKey = filterKey === "Type"
+          ? "transferType"
+          : filterKey === "Year"
+          ? "financialYear"
+          : filterKey.charAt(0).toLowerCase() + filterKey.slice(1);
+        transfer.filters[normalizedFilterKey] = value || "";
+        transfer.filters.page = 1;
+        refreshTransfers().then(() => render()).catch((error) => console.error("Transfer filter failed:", error));
+        return;
+      }
+      const formMap = {
+        transferType: "transferType",
+        financialYear: "financialYear",
+        priority: "priority",
+        sourceBudgetLineId: "sourceBudgetLineId",
+        destinationBudgetLineId: "destinationBudgetLineId",
+        transferAmount: "transferAmount",
+        reason: "reason",
+        remarks: "remarks"
+      };
+      if (formMap[key]) {
+        transfer.form[formMap[key]] = value;
+        return;
+      }
+    }
+
     if (id === "allocation-mode") {
       setAllocationControl("mode", value);
       render();
@@ -3192,6 +3498,7 @@ function render() {
   }
   // Railway remains the source of truth; local rows are only temporary optimistic overlays.
   if (!state.form) state.form = h.defaultForm ? h.defaultForm() : {};
+  ensureTransferState();
   if (!state.activeView) state.activeView = "dashboardView";
 async function loadLiveBudgetData(logStatus) {
   return singleFlightRefresh("budget", async () => {

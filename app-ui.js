@@ -20,6 +20,7 @@
     comparisonView: "comparisonContent",
     latestEstimateView: "latestEstimateContent",
     nextFyView: "nextFyContent",
+    transferView: "transferContent",
     reportView: "reportContent"
   };
 
@@ -4256,6 +4257,190 @@
     `;
   }
 
+  function renderTransfer() {
+    const transfer = state.transfers || {};
+    const requests = Array.isArray(transfer.requests) ? transfer.requests : [];
+    const workingBudget = Array.isArray(transfer.workingBudget) ? transfer.workingBudget : [];
+    const history = Array.isArray(transfer.history) ? transfer.history : [];
+    const filters = transfer.filters || {};
+    const form = transfer.form || {};
+    const dashboard = transfer.dashboard || {};
+    const active = requests.find((item) => String(item.id) === String(transfer.activeTransferId)) || requests[0] || null;
+    const yearOptions = optionValuesForKey("financialYear");
+    const locationOptions = getAllLocations();
+    const typeOptions = [
+      "CODING_TO_CODING",
+      "DEPARTMENT_TO_DEPARTMENT",
+      "LOCATION_TO_LOCATION",
+      "OWNER_TO_OWNER",
+      "CATEGORY_TO_CATEGORY",
+      "CROSS_LOCATION",
+      "CROSS_DEPARTMENT",
+      "CROSS_FINANCIAL_UNIT",
+      "FULL_TRANSFER",
+      "PARTIAL_TRANSFER"
+    ];
+    const statusOptions = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "APPROVED", "POSTED", "REVERSED", "CANCELLED"];
+    const activeVersion = active ? Number(active.versionNumber || active.version || 0) : 0;
+
+    const summaryTiles = [
+      ["Total Transfers", dashboard.total_transfers || dashboard.totalTransfers || 0],
+      ["Pending Approval", dashboard.pending_approval || dashboard.pendingApproval || 0],
+      ["Posted", dashboard.posted_transfers || dashboard.postedTransfers || 0],
+      ["Reversed", dashboard.reversed_transfers || dashboard.reversedTransfers || 0],
+      ["Transferred Amount", fmt(dashboard.transferred_amount || dashboard.transferredAmount || 0)],
+      ["Remaining Budget", fmt(workingBudget.reduce((sum, row) => sum + num(row.remaining_budget || row.remainingBudget || 0), 0))]
+    ].map(([label, value]) => `<div class="workflow-summary-tile"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+
+    const requestOptions = requests.map((request) => `${request.id}|${request.transferNumber || request.transfer_number || `Transfer ${request.id}`} | ${request.status}`);
+    const requestRows = requests.map((request) => `
+      <tr>
+        <td>${esc(request.transferNumber || "")}</td>
+        <td>${esc(request.transferType || "")}</td>
+        <td>${esc(request.financialYear || "")}</td>
+        <td>${esc(request.priority || "")}</td>
+        <td>${esc(fmt(request.totalTransferAmount || 0))}</td>
+        <td><span class="workflow-status-badge workflow-status-${esc(String(request.status || "").toLowerCase())}">${esc(String(request.status || "").replace(/_/g, " "))}</span></td>
+        <td>${esc(request.versionNumber || "")}</td>
+        <td>
+          <button type="button" class="btn btn-soft" data-action="transfer-select" data-id="${esc(request.id)}">Open</button>
+        </td>
+      </tr>
+    `);
+
+    const activeActions = active
+      ? [
+          ["SUBMIT", "Submit", "transfer-submit", active.status === "DRAFT"],
+          ["START_REVIEW", "Start Review", "transfer-review", active.status === "SUBMITTED"],
+          ["APPROVE", "Approve", "transfer-approve", active.status === "UNDER_REVIEW"],
+          ["RETURN_TO_DRAFT", "Return", "transfer-return", active.status === "SUBMITTED" || active.status === "UNDER_REVIEW"],
+          ["REJECT", "Reject", "transfer-reject", active.status === "SUBMITTED" || active.status === "UNDER_REVIEW"],
+          ["POST", "Post Transfer", "transfer-post", active.status === "APPROVED"],
+          ["REVERSE", "Reverse", "transfer-reverse", active.status === "POSTED"]
+        ].map(([, label, action, enabled]) => `<button type="button" class="btn ${action === "transfer-post" ? "btn-primary" : "btn-soft"}" data-action="${esc(action)}" data-id="${esc(active.id)}" ${enabled ? "" : "disabled"}>${esc(label)}</button>`).join("")
+      : "";
+
+    const activePanel = active
+      ? `
+        <section class="card">
+          <div class="section-head">
+            <div>
+              <h3>Active Transfer</h3>
+              <p>${esc(active.transferNumber || "")} | ${esc(active.status || "")} | v${esc(activeVersion)}</p>
+            </div>
+            <div class="dashboard-filter-meta">
+              ${activeActions}
+              <button type="button" class="btn btn-soft" data-action="transfer-history" data-id="${esc(active.id)}">History</button>
+              <button type="button" class="btn btn-soft" data-action="transfer-export">Export</button>
+            </div>
+          </div>
+          <div class="form-grid-compact">
+            ${inputCard("transfer-actionRemarks", "Action Remarks", "", "Required for post/reverse and recommended for approval", "text")}
+          </div>
+        </section>
+      `
+      : emptyCard("Active Transfer", "No transfer selected.");
+
+    const workingRows = workingBudget.map((row) => `
+      <tr>
+        <td>${esc(row.coding || "")}</td>
+        <td>${esc(row.item || "")}</td>
+        <td>${esc(row.location || "")}</td>
+        <td>${esc(row.owner || "")}</td>
+        <td>${esc(row.financial_year || row.financialYear || "")}</td>
+        <td>${esc(fmt(row.original_budget || row.originalBudget || 0))}</td>
+        <td>${esc(fmt(row.incoming_transfers || row.incomingTransfers || 0))}</td>
+        <td>${esc(fmt(row.outgoing_transfers || row.outgoingTransfers || 0))}</td>
+        <td>${esc(fmt(row.working_budget || row.workingBudget || 0))}</td>
+        <td>${esc(fmt(row.available_balance || row.availableBalance || 0))}</td>
+      </tr>
+    `);
+
+    const historyRows = history.map((row) => `
+      <tr>
+        <td>${esc(row.action || "")}</td>
+        <td>${esc(row.from_status || row.fromStatus || "")}</td>
+        <td>${esc(row.to_status || row.toStatus || "")}</td>
+        <td>${esc(row.remarks || "")}</td>
+        <td>${esc(row.performed_by || row.performedBy || "")}</td>
+        <td>${esc(row.performed_at || row.performedAt || "")}</td>
+      </tr>
+    `);
+
+    return `
+      <section class="card workflow-summary-card">
+        <div class="section-head">
+          <div>
+            <h3>Transfer Dashboard</h3>
+            <p>Additive ledger transfers preserve approved Budget, LE, and Next FY values.</p>
+          </div>
+          <button type="button" class="btn btn-soft" data-action="transfer-refresh">Refresh</button>
+        </div>
+        ${transfer.message ? `<div class="allocation-submit-note">${esc(transfer.message)}</div>` : ""}
+        <div class="workflow-summary-grid">${summaryTiles}</div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Create Transfer</h3>
+            <p>Enter existing source and destination Budget Planner row IDs. Posting creates ledger entries only.</p>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="transfer-create">Create Transfer</button>
+        </div>
+        <div class="form-grid-compact">
+          ${selectCard("transfer-transferType", "Transfer Type", form.transferType || "PARTIAL_TRANSFER", typeOptions, "Select type")}
+          ${selectCard("transfer-financialYear", "Financial Year", form.financialYear || "", yearOptions, "Select FY")}
+          ${selectCard("transfer-priority", "Priority", form.priority || "NORMAL", ["LOW", "NORMAL", "HIGH", "URGENT"], "Normal")}
+          ${inputCard("transfer-sourceBudgetLineId", "Source Budget Line ID", form.sourceBudgetLineId || "", "Existing budget_submissions id", "number")}
+          ${inputCard("transfer-destinationBudgetLineId", "Destination Budget Line ID", form.destinationBudgetLineId || "", "Existing budget_submissions id", "number")}
+          ${inputCard("transfer-transferAmount", "Transfer Amount", form.transferAmount || "", "100000", "number", false, "0.01")}
+          ${inputCard("transfer-reason", "Reason", form.reason || "", "Business reason", "text")}
+          ${inputCard("transfer-remarks", "Remarks", form.remarks || "", "Request notes", "text")}
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Transfer Requests</h3>
+            <p>Review, approve, post, and reverse transfer requests through controlled state changes.</p>
+          </div>
+          ${selectCard("transfer-activeTransfer", "Active Request", active ? `${active.id}|${active.transferNumber || ""} | ${active.status || ""}` : "", requestOptions, "Select transfer")}
+        </div>
+        <div class="filter-grid">
+          ${selectCard("transfer-filterStatus", "Status", filters.status || "", statusOptions, "All")}
+          ${selectCard("transfer-filterType", "Type", filters.transferType || "", typeOptions, "All")}
+          ${selectCard("transfer-filterYear", "Financial Year", filters.financialYear || "", yearOptions, "All")}
+          ${selectCard("transfer-filterLocation", "Location", filters.location || "", locationOptions, "All")}
+          ${inputCard("transfer-filterCoding", "Coding", filters.coding || "", "Search coding", "text")}
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Transfer No.</th><th>Type</th><th>FY</th><th>Priority</th><th>Amount</th><th>Status</th><th>Version</th><th>Action</th></tr></thead>
+            <tbody>${requestRows.length ? requestRows.join("") : `<tr><td colspan="8" class="empty-state">No transfers available.</td></tr>`}</tbody>
+          </table>
+        </div>
+      </section>
+
+      ${activePanel}
+
+      ${tableCard(
+        "Posting History",
+        active ? "Business lifecycle events for the selected transfer." : "Select a transfer to view history.",
+        ["Action", "From", "To", "Remarks", "Actor", "Performed At"],
+        historyRows
+      )}
+
+      ${tableCard(
+        "Working Budget",
+        "Working Budget = Original Approved Budget + Incoming Transfers - Outgoing Transfers.",
+        ["Coding", "Item", "Location", "Owner", "FY", "Original", "Incoming", "Outgoing", "Working", "Available"],
+        workingRows
+      )}
+    `;
+  }
+
   function renderFallback(viewId, error) {
     const label = viewId.replace("View", "");
     const message = (error && error.message) || "Unknown render error";
@@ -4281,6 +4466,7 @@
       else if (viewId === "comparisonView") html = renderComparison();
       else if (viewId === "latestEstimateView") html = renderLatestEstimate();
       else if (viewId === "nextFyView") html = renderNextFy();
+      else if (viewId === "transferView") html = renderTransfer();
       else if (viewId === "reportView") html = renderReport();
       else html = emptyCard("Unavailable", "This tab is not configured.");
     } catch (error) {

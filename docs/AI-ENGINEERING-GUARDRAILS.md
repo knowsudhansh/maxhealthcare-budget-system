@@ -268,3 +268,21 @@ Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature mod
 - Preserve `APP_BASE_PATH`.
 - Preserve first-click and pointer-render protections.
 - Preserve existing API meanings.
+
+## Transfer Guardrails
+
+- Never overwrite approved Budget values from a transfer.
+- Never overwrite approved LE values from a transfer.
+- Never overwrite approved Next FY values from a transfer.
+- Transfer posting must create immutable debit/credit ledger entries.
+- Transfer reversal must create opposite ledger entries; never delete the original transfer.
+- Working Budget must be calculated as Original Approved Budget + Incoming Transfers - Outgoing Transfers.
+- Never calculate transfer amounts from formatted display strings.
+- Never use `Number(value) || 0` for transfer validation.
+- Never post, approve, update, or reverse a transfer without expected version checks.
+- Never bypass transfer idempotency keys for write actions.
+- Never bypass workflow transition validation.
+- Never merge `owner` and `owner1`.
+- Never apply transfer migrations automatically to Production, UAT, or TiDB demo.
+- Preserve `APP_BASE_PATH` for every transfer API call.
+- Preserve first-click and pointer-render protections.

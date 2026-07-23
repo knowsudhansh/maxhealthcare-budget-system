@@ -54,6 +54,7 @@
     comparisonView: ["Comparison", "Compare last year expense, current year budget, and growth across locations."],
     latestEstimateView: ["Latest Estimate", "Review and save Latest Estimate values against a captured budget baseline."],
     nextFyView: ["Next FY Budget", "Generate, review, adjust, approve, and lock the next financial year budget."],
+    transferView: ["Budget Transfers", "Create, approve, post, reverse, and audit additive budget transfer requests."],
     reportView: ["Report", "Download the full local report as an Excel workbook."]
   };
 
@@ -566,6 +567,26 @@
           remarks: ""
         },
         edits: {},
+        message: ""
+      },
+      transfers: {
+        requests: [],
+        activeTransferId: "",
+        dashboard: null,
+        workingBudget: [],
+        history: [],
+        filters: { status: "", transferType: "", financialYear: "", coding: "", location: "", page: 1, pageSize: 25 },
+        form: {
+          transferType: "PARTIAL_TRANSFER",
+          financialYear: "",
+          priority: "NORMAL",
+          reason: "",
+          remarks: "",
+          sourceBudgetLineId: "",
+          destinationBudgetLineId: "",
+          transferAmount: "",
+          lineRemarks: ""
+        },
         message: ""
       },
       editId: null,

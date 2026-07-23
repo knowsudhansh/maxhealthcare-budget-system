@@ -204,3 +204,17 @@ Latest Estimate endpoints are additive under `/api/latest-estimates/*`. LE never
 ## Phase 4E Next FY APIs
 
 See `docs/41-next-fy-api-contract.md` for the Phase 4E Next FY endpoint contract. All Next FY routes are additive under `/api/next-fy/*`, preserve existing Budget and LE API meanings, and use the centralized success/error response conventions.
+
+## Phase 4F Transfer APIs
+
+See `docs/48-transfer-api.md`.
+
+Transfer routes are additive under `/api/transfers/*`:
+
+- create/list/read transfer requests,
+- submit/review/approve/post/reverse transitions,
+- transfer history,
+- transfer dashboard,
+- working budget balances.
+
+Transfer posting creates immutable ledger entries. It does not update Budget Planner, LE, or Next FY source values. Existing API field meanings are unchanged.

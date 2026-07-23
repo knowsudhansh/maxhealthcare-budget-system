@@ -46,16 +46,23 @@ Phase 4D implementation actions:
 ## Transfer Lifecycle
 
 ```text
-Draft -> Submitted -> Approved -> Posted
+Draft -> Submitted -> Under Review -> Approved -> Posted -> Reversed
 ```
 
 | From | To | Action | Rules |
 |---|---|---|---|
-| Draft | Submitted | `transfer.submit` | Same location/unit validation passes; amount positive; remarks mandatory. |
+| Draft | Submitted | `transfer.submit` | Approved/legacy source exists; destination exists; amount positive; balance available. |
+| Draft | Cancelled | `transfer.cancel` | Request cancelled before submission. |
+| Submitted | Under Review | `transfer.review.start` | Reviewer accepts queue item. |
 | Submitted | Draft | `transfer.return` | Reviewer remarks required. |
-| Submitted | Approved | `transfer.approve` | Source budget availability confirmed. |
-| Approved | Posted | `transfer.post` | Transaction posts debit/credit ledger atomically. |
-| Posted | Reversed | `transfer.reverse` | Reversal record required; original remains immutable. |
+| Submitted | Cancelled | `transfer.reject` | Rejection remarks required. |
+| Under Review | Approved | `transfer.approve` | Source budget availability confirmed. |
+| Under Review | Draft | `transfer.return` | Reviewer remarks required. |
+| Under Review | Cancelled | `transfer.reject` | Rejection remarks required. |
+| Approved | Posted | `transfer.post` | Transaction posts debit/credit ledger atomically; remarks required. |
+| Posted | Reversed | `transfer.reverse` | Reverse ledger entries required; original remains immutable; remarks required. |
+
+Transfer posting does not overwrite approved Budget, LE, or Next FY values.
 
 ## Next FY Budget Lifecycle
 

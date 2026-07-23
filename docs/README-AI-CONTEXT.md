@@ -131,3 +131,18 @@ LE stores sparse changed cells and does not overwrite Budget Planner data. Varia
 ## Phase 4E
 
 Next FY Budget is implemented as a standalone source-snapshot module under `src/modules/next-fy`. It generates from eligible approved LE, approved/locked Budget, hybrid fallback, or feature-flagged manual baseline. It must never update Budget or LE source records.
+
+## Phase 4F Transfers
+
+Budget Transfers are implemented as an additive ledger module under `src/modules/transfers`.
+
+Important boundary:
+
+```text
+Original Approved Budget
++ Incoming Transfer Postings
+- Outgoing Transfer Postings
+= Working Budget
+```
+
+Transfers must not update `budget_submissions`, LE, or Next FY source amounts. Reversal creates reverse ledger entries and does not delete posted transfer history.

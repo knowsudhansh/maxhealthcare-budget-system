@@ -430,3 +430,16 @@ Run:
 - `npm run test:nextfy-migration`
 
 These tests verify Next FY generation formulas, source snapshots, assumption priority, ambiguous-rule rejection, workflow transitions, API wiring, frontend tab wiring, migration safety, and environment flags.
+
+## Phase 4F Transfers
+
+Run:
+
+- `npm run test:transfers`
+- `npm run test:transfer-api`
+- `npm run test:transfer-workflow`
+- `npm run test:transfer-ledger`
+- `npm run test:transfer-ui`
+- `npm run test:transfer-migration`
+
+These tests verify transfer validation, ledger math, posting/reversal entries, Transfer workflow transitions, additive migration safety, API wiring, UI wiring, and feature flags.

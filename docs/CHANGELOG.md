@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Phase 4F Enterprise Budget Transfer Engine
+
+- Added additive transfer foundation migration proposal `012_budget_transfer_foundation.sql`.
+- Added Transfer workflow states, permissions, and notification event constants.
+- Added backend Transfer module for request creation, validation, lifecycle transitions, posting, reversal, history, dashboard, and working budget.
+- Added Transfer tab with dashboard KPIs, request creation, approval/posting actions, posting history, working budget, and export.
+- Added transfer feature flags and tests.
+- Existing formulas changed: No.
+- Approved Budget/LE/Next FY values overwritten by transfers: No.
+- Authentication/RBAC implemented: No.
+
 ### Enterprise Workflow Platform Design
 
 - Added enterprise workflow platform architecture documentation.

@@ -37,6 +37,7 @@ const {
 const { createWorkflowRouter } = require("./src/modules/workflow/workflow.routes");
 const { createLatestEstimateRouter } = require("./src/modules/latest-estimates/latest-estimate.routes");
 const { createNextFyRouter } = require("./src/modules/next-fy/next-fy.routes");
+const { createTransferRouter } = require("./src/modules/transfers/transfer.routes");
 const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
@@ -169,6 +170,15 @@ app.get("/app-config.js", (req, res) => {
   const nextFyAllowManualBaseline = runtimeConfig
     ? Boolean(runtimeConfig.features && runtimeConfig.features.nextFyAllowManualBaseline)
     : process.env.NEXT_FY_ALLOW_MANUAL_BASELINE === "true";
+  const transferModuleEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.transferModuleEnabled)
+    : process.env.TRANSFER_MODULE_ENABLED !== "false";
+  const transferPostingEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.transferPostingEnabled)
+    : process.env.TRANSFER_POSTING_ENABLED !== "false";
+  const transferReversalEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.transferReversalEnabled)
+    : process.env.TRANSFER_REVERSAL_ENABLED !== "false";
   res.type("application/javascript");
   res.setHeader("Cache-Control", "no-store");
   return res.send(`window.APP_CONFIG = ${JSON.stringify({
@@ -181,7 +191,10 @@ app.get("/app-config.js", (req, res) => {
     leWorkflowEnforcementEnabled,
     nextFyBudgetEnabled,
     nextFyWorkflowEnforcementEnabled,
-    nextFyAllowManualBaseline
+    nextFyAllowManualBaseline,
+    transferModuleEnabled,
+    transferPostingEnabled,
+    transferReversalEnabled
   })};\n`);
 });
 
@@ -211,6 +224,7 @@ app.get("/:asset", (req, res, next) => {
 app.use("/api", createWorkflowRouter());
 app.use("/api", createLatestEstimateRouter());
 app.use("/api", createNextFyRouter());
+app.use("/api", createTransferRouter());
 
 function sanitize(value) {
   return typeof value === "string" ? value.trim() : "";

@@ -168,3 +168,15 @@ Migration `011_next_fy_budget_foundation.sql` adds standalone Next FY tables:
 - `next_fy_adjustment_history`
 
 The migration is additive and does not modify Budget or LE source tables. See `docs/40-next-fy-database-design.md`.
+
+## Phase 4F Transfer Foundation
+
+Migration `012_budget_transfer_foundation.sql` adds standalone transfer tables:
+
+- `budget_transfer_requests`
+- `budget_transfer_lines`
+- `budget_transfer_postings`
+- `budget_transfer_history`
+- `working_budget_balances`
+
+The migration is additive. Transfer postings are immutable ledger rows; approved Budget, LE, and Next FY records are not overwritten. See `docs/47-transfer-database.md`.

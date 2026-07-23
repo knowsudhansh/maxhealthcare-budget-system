@@ -154,7 +154,10 @@ function loadEnvironment(env = process.env) {
       nextFyMaxGrowthPercent: Number(env.NEXT_FY_MAX_GROWTH_PERCENT || 100),
       nextFyMinGrowthPercent: Number(env.NEXT_FY_MIN_GROWTH_PERCENT || -100),
       nextFyMaxAbsoluteAmount: Number(env.NEXT_FY_MAX_ABSOLUTE_AMOUNT || 10000000000),
-      nextFyMaxBulkLines: Number(env.NEXT_FY_MAX_BULK_LINES || 500)
+      nextFyMaxBulkLines: Number(env.NEXT_FY_MAX_BULK_LINES || 500),
+      transferModuleEnabled: parseBoolean(env.TRANSFER_MODULE_ENABLED, true),
+      transferPostingEnabled: parseBoolean(env.TRANSFER_POSTING_ENABLED, true),
+      transferReversalEnabled: parseBoolean(env.TRANSFER_REVERSAL_ENABLED, true)
     }
   };
 
