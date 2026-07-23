@@ -128,3 +128,6 @@ Phase 4D adds:
 - `npm run test:le`
 
 LE stores sparse changed cells and does not overwrite Budget Planner data. Variance is backend-calculated only.
+## Phase 4E
+
+Next FY Budget is implemented as a standalone source-snapshot module under `src/modules/next-fy`. It generates from eligible approved LE, approved/locked Budget, hybrid fallback, or feature-flagged manual baseline. It must never update Budget or LE source records.

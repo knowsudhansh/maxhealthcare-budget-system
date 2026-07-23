@@ -19,6 +19,7 @@
     utilizationView: "utilizationContent",
     comparisonView: "comparisonContent",
     latestEstimateView: "latestEstimateContent",
+    nextFyView: "nextFyContent",
     reportView: "reportContent"
   };
 
@@ -4072,6 +4073,189 @@
     `;
   }
 
+  function renderNextFy() {
+    const nextFy = state.nextFy || {};
+    const budgets = Array.isArray(nextFy.budgets) ? nextFy.budgets : [];
+    const filters = nextFy.filters || {};
+    const setup = nextFy.setup || {};
+    const draftRule = nextFy.assumptionDraft || {};
+    const edits = nextFy.edits || {};
+    const activeBudget = budgets.find((budget) => String(budget.id) === String(nextFy.activeBudgetId)) || budgets[0] || null;
+    const rows = Array.isArray(nextFy.lines) ? nextFy.lines : [];
+    const summary = nextFy.summary || {};
+    const preview = nextFy.preview && nextFy.preview.preview ? nextFy.preview.preview : nextFy.preview || null;
+    const yearOptions = optionValuesForKey("financialYear");
+    const locationOptions = getAllLocations();
+    const categoryOptions = optionValuesForKey("categoryIt");
+    const ownerOptions = optionValuesForKey("owner");
+    const sourceOptions = ["APPROVED_LE", "CURRENT_BUDGET", "HYBRID", "MANUAL_BASELINE"];
+    const status = activeBudget ? activeBudget.status : "NOT_STARTED";
+    const editable = status === "GENERATED";
+
+    function lineDraft(row, field) {
+      const draft = edits[String(row.id)] || {};
+      return Object.prototype.hasOwnProperty.call(draft, field) ? draft[field] : row[field] || "";
+    }
+
+    const budgetOptions = budgets.map((budget) => `${budget.id}|${budget.budgetCode} | ${budget.targetFinancialYear}`);
+    const setupGrid = `
+      <div class="form-grid-compact">
+        ${inputCard("nextfy-budgetName", "Budget Name", setup.budgetName || "", "Next FY Budget", "text")}
+        ${selectCard("nextfy-sourceStrategy", "Source Strategy", setup.sourceStrategy || "CURRENT_BUDGET", sourceOptions, "Select source")}
+        ${inputCard("nextfy-sourceEntityId", "Source Entity ID", setup.sourceEntityId || "", "LE matrix ID when applicable", "text")}
+        ${selectCard("nextfy-sourceFinancialYear", "Source FY", setup.sourceFinancialYear || "", yearOptions, "Select source FY")}
+        ${inputCard("nextfy-targetFinancialYear", "Target FY", setup.targetFinancialYear || "", "2026-27", "text")}
+        ${inputCard("nextfy-generationRemarks", "Generation Remarks", setup.generationRemarks || "", "Reason for generation", "text")}
+      </div>
+    `;
+
+    const assumptionGrid = `
+      <div class="form-grid-compact">
+        ${inputCard("nextfy-ruleName", "Rule Name", draftRule.ruleName || "", "Global 5% growth", "text")}
+        ${selectCard("nextfy-ruleType", "Rule Type", draftRule.ruleType || "GLOBAL_GROWTH", ["GLOBAL_GROWTH", "LOCATION_GROWTH", "CODING_GROWTH", "CODING_LOCATION_GROWTH", "CATEGORY_GROWTH", "CATEGORY_LOCATION_GROWTH", "OWNER_GROWTH", "FIXED_AMOUNT"], "Select rule")}
+        ${inputCard("nextfy-priority", "Priority", draftRule.priority ?? 100, "100", "number")}
+        ${selectCard("nextfy-ruleLocation", "Location", draftRule.location || "", locationOptions, "All")}
+        ${inputCard("nextfy-ruleCoding", "Coding", draftRule.coding || "", "Coding", "text")}
+        ${selectCard("nextfy-ruleCategory", "Category", draftRule.category || "", categoryOptions, "All")}
+        ${selectCard("nextfy-ruleOwner", "Owner", draftRule.owner || "", ownerOptions, "All")}
+        ${inputCard("nextfy-growthPercentage", "Growth %", draftRule.growthPercentage ?? 0, "0", "number", false, "0.01")}
+        ${inputCard("nextfy-fixedAdjustmentAmount", "Fixed Adjustment", draftRule.fixedAdjustmentAmount ?? 0, "0", "number", false, "0.01")}
+        ${inputCard("nextfy-ruleRemarks", "Rule Remarks", draftRule.remarks || "", "Assumption notes", "text")}
+      </div>
+    `;
+
+    const summaryTiles = [
+      ["Source", fmt(summary.totalSourceAmount || 0)],
+      ["Generated", fmt(summary.totalGeneratedAmount || 0)],
+      ["Manual Adj.", fmt(summary.totalManualAdjustment || 0)],
+      ["Final", fmt(summary.totalFinalAmount || 0)],
+      ["Lines", summary.totalLines || 0],
+      ["Increased", summary.linesIncreased || 0],
+      ["Decreased", summary.linesDecreased || 0],
+      ["Adjusted", summary.adjustedLines || 0],
+      ["Missing Reasons", summary.linesMissingRequiredReasons || 0],
+      ["Invalid", summary.invalidLines || 0]
+    ].map(([label, value]) => `<div class="workflow-summary-tile"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join("");
+
+    const previewHtml = preview
+      ? `<div class="nextfy-preview-grid">
+          <div><span>Source Lines</span><strong>${esc(preview.sourceRecordCount || 0)}</strong></div>
+          <div><span>Estimated Total</span><strong>${esc(fmt(preview.totalGeneratedAmount || 0))}</strong></div>
+          <div><span>Increase / Decrease</span><strong>${esc(fmt(preview.estimatedIncreaseDecrease || 0))}</strong></div>
+          <div><span>Ambiguous Rules</span><strong>${esc(preview.ambiguousRuleCount || 0)}</strong></div>
+          <div><span>Zero Growth Defaults</span><strong>${esc(preview.zeroGrowthDefaultLines || 0)}</strong></div>
+        </div>`
+      : `<p class="muted">Preview has not been generated yet.</p>`;
+
+    const tableRows = rows.map((row) => {
+      const dirty = Boolean(edits[String(row.id)]);
+      return `
+        <tr class="${dirty ? "allocation-cell-edited" : ""}">
+          <td>${esc(row.coding || "")}</td>
+          <td>${esc(row.item || "")}</td>
+          <td>${esc(row.location || "")}</td>
+          <td>${esc(row.owner || "")}</td>
+          <td>${esc(row.owner1 || "")}</td>
+          <td>${esc(row.sourceType || "")}</td>
+          <td>${esc(fmt(row.sourceAmount || 0))}</td>
+          <td>${esc(pct(row.growthPercentage || 0))}</td>
+          <td>${esc(fmt(row.growthAmount || 0))}</td>
+          <td>${esc(fmt(row.generatedAmount || 0))}</td>
+          <td>
+            <input
+              type="number"
+              class="input-control nextfy-line-input"
+              data-nextfy-line-id="${esc(row.id)}"
+              data-nextfy-line-version="${esc(row.lineVersion || "")}"
+              data-nextfy-field="manualAdjustmentAmount"
+              value="${esc(lineDraft(row, "manualAdjustmentAmount"))}"
+              ${editable ? "" : "disabled"}
+            />
+          </td>
+          <td>${esc(fmt(row.finalBudgetAmount || 0))}</td>
+          <td>
+            <input
+              type="text"
+              class="input-control nextfy-line-input"
+              data-nextfy-line-id="${esc(row.id)}"
+              data-nextfy-line-version="${esc(row.lineVersion || "")}"
+              data-nextfy-field="adjustmentReason"
+              value="${esc(lineDraft(row, "adjustmentReason"))}"
+              ${editable ? "" : "disabled"}
+            />
+          </td>
+          <td>${dirty ? `<button type="button" class="btn btn-soft" data-action="nextfy-revert-line" data-nextfy-line-id="${esc(row.id)}">Revert</button>` : `<span class="muted">${esc(row.validationStatus || "Saved")}</span>`}</td>
+        </tr>
+      `;
+    });
+
+    return `
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Next FY Budget Setup</h3>
+            <p>Creates standalone Next FY drafts from eligible Budget or LE source snapshots.</p>
+          </div>
+          <div class="dashboard-filter-meta">
+            <button type="button" class="btn btn-primary" data-action="nextfy-create-budget">Create Budget</button>
+            <button type="button" class="btn btn-soft" data-action="nextfy-refresh">Refresh</button>
+          </div>
+        </div>
+        ${nextFy.message ? `<div class="allocation-submit-note">${esc(nextFy.message)}</div>` : ""}
+        ${setupGrid}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Assumptions</h3>
+            <p>Priority and specificity choose one growth rule per line. Ambiguous rules are rejected by the backend.</p>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="nextfy-save-assumption" ${activeBudget && editable ? "" : "disabled"}>Save Assumption</button>
+        </div>
+        ${assumptionGrid}
+      </section>
+
+      <section class="card">
+        <div class="section-head">
+          <div>
+            <h3>Generation Preview</h3>
+            <p>${activeBudget ? `${esc(activeBudget.budgetName)} | ${esc(status)} | v${esc(activeBudget.versionNumber)}` : "Create or select a Next FY budget."}</p>
+          </div>
+          <div class="dashboard-filter-meta">
+            <button type="button" class="btn btn-soft" data-action="nextfy-preview" ${activeBudget ? "" : "disabled"}>Preview</button>
+            <button type="button" class="btn btn-primary" data-action="nextfy-generate" ${activeBudget && editable ? "" : "disabled"}>Generate</button>
+          </div>
+        </div>
+        <div class="filter-grid">
+          ${selectCard("nextfy-budget", "Budget", activeBudget ? `${activeBudget.id}|${activeBudget.budgetCode} | ${activeBudget.targetFinancialYear}` : "", budgetOptions, "Select budget")}
+          ${selectCard("nextfy-filterLocation", "Location", filters.location || "", locationOptions, "All")}
+          ${inputCard("nextfy-filterCoding", "Coding", filters.coding || "", "Search coding", "text")}
+          ${selectCard("nextfy-filterSourceType", "Source Type", filters.sourceType || "", ["APPROVED_LE", "CURRENT_BUDGET", "MANUAL_BASELINE"], "All")}
+        </div>
+        ${previewHtml}
+      </section>
+
+      <section class="card workflow-summary-card">
+        <div class="section-head">
+          <div>
+            <h3>Next FY Summary</h3>
+            <p>${activeBudget ? `${esc(activeBudget.budgetCode)} | ${esc(activeBudget.targetFinancialYear)}` : "No active Next FY budget."}</p>
+          </div>
+          <button type="button" class="btn btn-primary" data-action="nextfy-save-adjustments" ${activeBudget && editable && Object.keys(edits).length ? "" : "disabled"}>Save Adjustments (${esc(Object.keys(edits).length)})</button>
+        </div>
+        <div class="workflow-summary-grid">${summaryTiles}</div>
+      </section>
+
+      ${tableCard(
+        "Next FY Lines",
+        activeBudget ? "Generated lines preserve source snapshots and support draft manual adjustments." : "No Next FY budget selected.",
+        ["Coding", "Item", "Location", "Owner", "Owner1", "Source", "Source Amount", "Growth %", "Growth Amount", "Generated", "Manual Adj.", "Final", "Reason", "Status"],
+        tableRows
+      )}
+    `;
+  }
+
   function renderFallback(viewId, error) {
     const label = viewId.replace("View", "");
     const message = (error && error.message) || "Unknown render error";
@@ -4096,6 +4280,7 @@
       else if (viewId === "utilizationView") html = renderUtilization();
       else if (viewId === "comparisonView") html = renderComparison();
       else if (viewId === "latestEstimateView") html = renderLatestEstimate();
+      else if (viewId === "nextFyView") html = renderNextFy();
       else if (viewId === "reportView") html = renderReport();
       else html = emptyCard("Unavailable", "This tab is not configured.");
     } catch (error) {

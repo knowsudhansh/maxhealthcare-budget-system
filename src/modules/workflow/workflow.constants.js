@@ -28,14 +28,23 @@ const LE_STATES = Object.freeze({
   APPROVED: "APPROVED"
 });
 
+const NEXT_FY_STATES = Object.freeze({
+  GENERATED: "GENERATED",
+  UNDER_REVIEW: "UNDER_REVIEW",
+  APPROVED: "APPROVED",
+  LOCKED: "LOCKED"
+});
+
 const WORKFLOW_ACTIONS = Object.freeze({
   CREATE: "CREATE",
+  GENERATE: "GENERATE",
   SUBMIT: "SUBMIT",
   START_REVIEW: "START_REVIEW",
   VALIDATE: "VALIDATE",
   APPROVE: "APPROVE",
   LOCK: "LOCK",
   RETURN_TO_DRAFT: "RETURN_TO_DRAFT",
+  RETURN_TO_GENERATED: "RETURN_TO_GENERATED",
   REJECT: "REJECT"
 });
 
@@ -73,13 +82,37 @@ const LE_PERMISSIONS = Object.freeze({
   DASHBOARD_VIEW: "le.dashboard.view"
 });
 
+const NEXT_FY_PERMISSIONS = Object.freeze({
+  CREATE: "nextfy.create",
+  VIEW: "nextfy.view",
+  ASSUMPTIONS_MANAGE: "nextfy.assumptions.manage",
+  PREVIEW: "nextfy.preview",
+  GENERATE: "nextfy.generate",
+  RESET: "nextfy.reset",
+  ADJUST: "nextfy.adjust",
+  REVIEW_START: "nextfy.review.start",
+  APPROVE: "nextfy.approve",
+  RETURN: "nextfy.return",
+  REJECT: "nextfy.reject",
+  LOCK: "nextfy.lock",
+  EXPORT: "nextfy.export",
+  DASHBOARD_VIEW: "nextfy.dashboard.view",
+  HISTORY_VIEW: "nextfy.history.view"
+});
+
 const NOTIFICATION_EVENTS = Object.freeze({
   BUDGET_SUBMITTED: "BUDGET_SUBMITTED",
   BUDGET_REVIEW_STARTED: "BUDGET_REVIEW_STARTED",
   BUDGET_APPROVED: "BUDGET_APPROVED",
   BUDGET_RETURNED_TO_DRAFT: "BUDGET_RETURNED_TO_DRAFT",
   BUDGET_REJECTED: "BUDGET_REJECTED",
-  BUDGET_LOCKED: "BUDGET_LOCKED"
+  BUDGET_LOCKED: "BUDGET_LOCKED",
+  NEXT_FY_GENERATED: "NEXT_FY_GENERATED",
+  NEXT_FY_REVIEW_STARTED: "NEXT_FY_REVIEW_STARTED",
+  NEXT_FY_APPROVED: "NEXT_FY_APPROVED",
+  NEXT_FY_RETURNED: "NEXT_FY_RETURNED",
+  NEXT_FY_REJECTED: "NEXT_FY_REJECTED",
+  NEXT_FY_LOCKED: "NEXT_FY_LOCKED"
 });
 
 const SYSTEM_ACTOR = Object.freeze({
@@ -94,6 +127,8 @@ module.exports = {
   ENTITY_TYPES,
   LE_PERMISSIONS,
   LE_STATES,
+  NEXT_FY_PERMISSIONS,
+  NEXT_FY_STATES,
   NOTIFICATION_EVENTS,
   SYSTEM_ACTOR,
   WORKFLOW_ACTIONS,

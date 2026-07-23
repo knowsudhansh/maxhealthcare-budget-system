@@ -194,3 +194,6 @@
 - Documented that Docker build remains blocked until the actual corporate CA is supplied through BuildKit `corp_ca`.
 - Added the explicit Phase 4B gate: do not begin Phase 4B unless Phase 4A declarations are all `Yes` or externally waived.
 - Existing formulas changed: No.
+## Phase 4E
+
+- Added Next FY Budget foundation with source snapshots, assumption rules, transactional generation, manual adjustments, workflow integration, summary/comparison APIs, frontend tab, tests, and documentation.

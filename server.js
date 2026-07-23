@@ -36,6 +36,7 @@ const {
 } = require("./src/validation/allocation");
 const { createWorkflowRouter } = require("./src/modules/workflow/workflow.routes");
 const { createLatestEstimateRouter } = require("./src/modules/latest-estimates/latest-estimate.routes");
+const { createNextFyRouter } = require("./src/modules/next-fy/next-fy.routes");
 const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
@@ -159,6 +160,15 @@ app.get("/app-config.js", (req, res) => {
   const leWorkflowEnforcementEnabled = runtimeConfig
     ? Boolean(runtimeConfig.features && runtimeConfig.features.leWorkflowEnforcementEnabled)
     : process.env.LE_WORKFLOW_ENFORCEMENT_ENABLED !== "false";
+  const nextFyBudgetEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.nextFyBudgetEnabled)
+    : process.env.NEXT_FY_BUDGET_ENABLED !== "false";
+  const nextFyWorkflowEnforcementEnabled = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.nextFyWorkflowEnforcementEnabled)
+    : process.env.NEXT_FY_WORKFLOW_ENFORCEMENT_ENABLED !== "false";
+  const nextFyAllowManualBaseline = runtimeConfig
+    ? Boolean(runtimeConfig.features && runtimeConfig.features.nextFyAllowManualBaseline)
+    : process.env.NEXT_FY_ALLOW_MANUAL_BASELINE === "true";
   res.type("application/javascript");
   res.setHeader("Cache-Control", "no-store");
   return res.send(`window.APP_CONFIG = ${JSON.stringify({
@@ -168,7 +178,10 @@ app.get("/app-config.js", (req, res) => {
     workflowLockEnforcementEnabled,
     workflowApprovalQueueEnabled,
     latestEstimateEnabled,
-    leWorkflowEnforcementEnabled
+    leWorkflowEnforcementEnabled,
+    nextFyBudgetEnabled,
+    nextFyWorkflowEnforcementEnabled,
+    nextFyAllowManualBaseline
   })};\n`);
 });
 
@@ -197,6 +210,7 @@ app.get("/:asset", (req, res, next) => {
 
 app.use("/api", createWorkflowRouter());
 app.use("/api", createLatestEstimateRouter());
+app.use("/api", createNextFyRouter());
 
 function sanitize(value) {
   return typeof value === "string" ? value.trim() : "";
@@ -1162,6 +1176,7 @@ app.use(errorHandler);
 
 async function startServer() {
   runtimeConfig = loadEnvironment(process.env);
+  app.locals.runtimeConfig = runtimeConfig;
   const dbSecret = await loadDbSecret(runtimeConfig);
   await initializePool(runtimeConfig, dbSecret);
   ensureDataDirectory();

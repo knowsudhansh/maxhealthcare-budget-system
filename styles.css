@@ -4545,6 +4545,29 @@ details.multi-select summary::-webkit-details-marker {
   font-size: 1.35rem;
 }
 
+.nextfy-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.nextfy-preview-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #d8e8f7;
+  border-radius: 8px;
+  background: #f7fbff;
+}
+
+.nextfy-preview-grid span {
+  color: #5d7895;
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .workflow-transition-modal .workflow-remarks-field {
   margin-top: 12px;
 }

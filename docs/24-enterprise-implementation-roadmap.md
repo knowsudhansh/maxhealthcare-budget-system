@@ -107,3 +107,6 @@ Only after workflow action boundaries are stable:
 | Transfer posting inconsistency | High | Use database transactions and immutable ledger. |
 | Approval without RBAC | Medium | Use design-time permission boundaries only until auth exists. |
 | Audit table not applied | Medium | Feature-gated audit persistence. |
+## Phase 4E
+
+Next FY Budget generation and approval engine. Manual UAT and authorized migration execution remain separate rollout activities.

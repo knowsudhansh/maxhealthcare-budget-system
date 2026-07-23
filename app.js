@@ -138,6 +138,32 @@
     return [input.budgetEntityId || "", input.coding || "", input.location || "", input.financialYear || ""].join("||");
   }
 
+  function ensureNextFyState() {
+    if (!state.nextFy || typeof state.nextFy !== "object") {
+      state.nextFy = {
+        budgets: [],
+        activeBudgetId: "",
+        lines: [],
+        summary: null,
+        preview: null,
+        filters: { page: 1, pageSize: 25 },
+        setup: { sourceStrategy: "CURRENT_BUDGET" },
+        assumptionDraft: { ruleType: "GLOBAL_GROWTH", priority: 100, growthPercentage: 0, fixedAdjustmentAmount: 0 },
+        edits: {},
+        message: ""
+      };
+    }
+    if (!state.nextFy.filters) state.nextFy.filters = { page: 1, pageSize: 25 };
+    if (!state.nextFy.setup) state.nextFy.setup = { sourceStrategy: "CURRENT_BUDGET" };
+    if (!state.nextFy.assumptionDraft) state.nextFy.assumptionDraft = { ruleType: "GLOBAL_GROWTH", priority: 100, growthPercentage: 0, fixedAdjustmentAmount: 0 };
+    if (!state.nextFy.edits) state.nextFy.edits = {};
+    return state.nextFy;
+  }
+
+  function nextFyIdempotencyKey(prefix) {
+    return workflowIdempotencyKey(prefix, "nextfy", "action");
+  }
+
   function applyFinancialFormats(sheet, moneyKeys) {
     if (!sheet || !sheet["!ref"] || typeof XLSX === "undefined") return;
     const range = XLSX.utils.decode_range(sheet["!ref"]);
@@ -1537,6 +1563,155 @@ function editRecord(id) {
     render();
   }
 
+  async function loadNextFyBudgets() {
+    const nextFy = ensureNextFyState();
+    const params = new URLSearchParams();
+    if (nextFy.filters.targetFinancialYear) params.set("targetFinancialYear", nextFy.filters.targetFinancialYear);
+    const response = await fetch(apiUrl(`next-fy/budgets${params.toString() ? `?${params.toString()}` : ""}`));
+    if (!response.ok) throw new Error("Next FY budgets could not be loaded.");
+    const payload = await response.json();
+    nextFy.budgets = payload && payload.data && Array.isArray(payload.data.rows) ? payload.data.rows : [];
+    if (!nextFy.activeBudgetId && nextFy.budgets[0]) nextFy.activeBudgetId = String(nextFy.budgets[0].id);
+  }
+
+  async function loadNextFyLines() {
+    const nextFy = ensureNextFyState();
+    if (!nextFy.activeBudgetId) {
+      nextFy.lines = [];
+      return;
+    }
+    const params = new URLSearchParams();
+    Object.entries(nextFy.filters || {}).forEach(([key, value]) => {
+      if (value !== "" && value !== null && value !== undefined) params.set(key, value);
+    });
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/lines?${params.toString()}`));
+    if (!response.ok) throw new Error("Next FY lines could not be loaded.");
+    const payload = await response.json();
+    nextFy.lines = payload && payload.data && Array.isArray(payload.data.rows) ? payload.data.rows : [];
+  }
+
+  async function loadNextFySummary() {
+    const nextFy = ensureNextFyState();
+    if (!nextFy.activeBudgetId) {
+      nextFy.summary = null;
+      return;
+    }
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/summary`));
+    if (!response.ok) throw new Error("Next FY summary could not be loaded.");
+    const payload = await response.json();
+    nextFy.summary = payload && payload.data ? payload.data : null;
+  }
+
+  async function refreshNextFy() {
+    const nextFy = ensureNextFyState();
+    try {
+      await loadNextFyBudgets();
+      await Promise.all([loadNextFyLines(), loadNextFySummary()]);
+    } catch (error) {
+      nextFy.message = "Next FY data could not be loaded.";
+      throw error;
+    }
+  }
+
+  async function createNextFyBudget() {
+    const nextFy = ensureNextFyState();
+    const setup = nextFy.setup || {};
+    const targetYear = setup.targetFinancialYear || "";
+    const response = await fetch(apiUrl("next-fy/budgets"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        budgetName: setup.budgetName || `Next FY Budget ${targetYear}`,
+        budgetCode: `NEXTFY-${targetYear || "YEAR"}-${Date.now()}`,
+        sourceStrategy: setup.sourceStrategy || "CURRENT_BUDGET",
+        sourceEntityId: setup.sourceEntityId || "",
+        sourceFinancialYear: setup.sourceFinancialYear || "",
+        targetFinancialYear: targetYear,
+        generationRemarks: setup.generationRemarks || "Created from Next FY setup.",
+        idempotencyKey: nextFyIdempotencyKey("nextfy-create")
+      })
+    });
+    if (!response.ok) throw new Error("Next FY budget could not be created.");
+    const payload = await response.json();
+    nextFy.activeBudgetId = payload && payload.data && payload.data.budget ? String(payload.data.budget.id) : nextFy.activeBudgetId;
+    nextFy.message = "Next FY budget created.";
+    await refreshNextFy();
+    render();
+  }
+
+  async function saveNextFyAssumption() {
+    const nextFy = ensureNextFyState();
+    if (!nextFy.activeBudgetId) return;
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/assumptions`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextFy.assumptionDraft || {})
+    });
+    if (!response.ok) throw new Error("Next FY assumption could not be saved.");
+    nextFy.message = "Assumption saved.";
+    render();
+  }
+
+  async function previewNextFyGeneration() {
+    const nextFy = ensureNextFyState();
+    if (!nextFy.activeBudgetId) return;
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/preview`));
+    if (!response.ok) throw new Error("Next FY preview could not be generated.");
+    const payload = await response.json();
+    nextFy.preview = payload && payload.data ? payload.data : null;
+    nextFy.message = "Generation preview refreshed.";
+    render();
+  }
+
+  async function generateNextFyBudget() {
+    const nextFy = ensureNextFyState();
+    const budget = (nextFy.budgets || []).find((item) => String(item.id) === String(nextFy.activeBudgetId));
+    if (!budget) return;
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/generate`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: budget.versionNumber,
+        idempotencyKey: nextFyIdempotencyKey("nextfy-generate"),
+        generationRemarks: (nextFy.setup && nextFy.setup.generationRemarks) || "Generated from configured assumptions."
+      })
+    });
+    if (!response.ok) throw new Error("Next FY generation failed.");
+    nextFy.edits = {};
+    nextFy.message = "Next FY lines generated.";
+    await refreshNextFy();
+    render();
+  }
+
+  async function saveNextFyAdjustments() {
+    const nextFy = ensureNextFyState();
+    const budget = (nextFy.budgets || []).find((item) => String(item.id) === String(nextFy.activeBudgetId));
+    const changes = Object.keys(nextFy.edits || {}).map((lineId) => {
+      const draft = nextFy.edits[lineId] || {};
+      return {
+        lineId,
+        expectedLineVersion: draft.expectedLineVersion,
+        manualAdjustmentAmount: draft.manualAdjustmentAmount,
+        adjustmentReason: draft.adjustmentReason || ""
+      };
+    });
+    if (!budget || !changes.length) return;
+    const response = await fetch(apiUrl(`next-fy/budgets/${encodeURIComponent(nextFy.activeBudgetId)}/lines/bulk-adjust`), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        expectedVersion: budget.versionNumber,
+        idempotencyKey: nextFyIdempotencyKey("nextfy-adjust"),
+        lines: changes
+      })
+    });
+    if (!response.ok) throw new Error("Next FY adjustments could not be saved.");
+    nextFy.edits = {};
+    nextFy.message = `Saved ${changes.length} Next FY adjustment(s).`;
+    await refreshNextFy();
+    render();
+  }
+
   async function reloadPlannerWorkflowData() {
     await loadLiveBudgetData(false);
     await refreshWorkflowPanels();
@@ -1991,6 +2166,9 @@ function render() {
       if (state.activeView === "latestEstimateView") {
         refreshLatestEstimate().then(() => render()).catch((error) => console.error("Latest Estimate tab load failed:", error));
       }
+      if (state.activeView === "nextFyView") {
+        refreshNextFy().then(() => render()).catch((error) => console.error("Next FY tab load failed:", error));
+      }
       return;
     }
 
@@ -2110,6 +2288,60 @@ function render() {
       const le = ensureLeState();
       const key = actionButton.getAttribute("data-le-key");
       if (key && le.edits) delete le.edits[key];
+      render();
+      return;
+    }
+    if (action === "nextfy-create-budget") {
+      withButtonActionLock(actionButton, async () => createNextFyBudget()).catch((error) => {
+        console.error("Create Next FY budget failed:", error);
+        ensureNextFyState().message = "Next FY budget could not be created.";
+        render();
+      });
+      return;
+    }
+    if (action === "nextfy-refresh") {
+      withButtonActionLock(actionButton, async () => {
+        await refreshNextFy();
+        render();
+      }).catch((error) => console.error("Next FY refresh failed:", error));
+      return;
+    }
+    if (action === "nextfy-save-assumption") {
+      withButtonActionLock(actionButton, async () => saveNextFyAssumption()).catch((error) => {
+        console.error("Save Next FY assumption failed:", error);
+        ensureNextFyState().message = "Next FY assumption could not be saved.";
+        render();
+      });
+      return;
+    }
+    if (action === "nextfy-preview") {
+      withButtonActionLock(actionButton, async () => previewNextFyGeneration()).catch((error) => {
+        console.error("Preview Next FY failed:", error);
+        ensureNextFyState().message = "Next FY preview could not be generated.";
+        render();
+      });
+      return;
+    }
+    if (action === "nextfy-generate") {
+      withButtonActionLock(actionButton, async () => generateNextFyBudget()).catch((error) => {
+        console.error("Generate Next FY failed:", error);
+        ensureNextFyState().message = "Next FY generation failed.";
+        render();
+      });
+      return;
+    }
+    if (action === "nextfy-save-adjustments") {
+      withButtonActionLock(actionButton, async () => saveNextFyAdjustments()).catch((error) => {
+        console.error("Save Next FY adjustments failed:", error);
+        ensureNextFyState().message = "Next FY adjustments could not be saved.";
+        render();
+      });
+      return;
+    }
+    if (action === "nextfy-revert-line") {
+      const nextFy = ensureNextFyState();
+      const lineId = actionButton.getAttribute("data-nextfy-line-id");
+      if (lineId && nextFy.edits) delete nextFy.edits[lineId];
       render();
       return;
     }
@@ -2597,6 +2829,58 @@ function render() {
       draft.expectedCellVersion = target.getAttribute("data-cell-version") || draft.expectedCellVersion || null;
       draft[field] = value;
       le.edits[key] = draft;
+      return;
+    }
+
+    if (id.startsWith("nextfy-")) {
+      const nextFy = ensureNextFyState();
+      const key = id.replace("nextfy-", "");
+      if (key === "budget") {
+        nextFy.activeBudgetId = String(value || "").split("|")[0] || "";
+        nextFy.edits = {};
+        refreshNextFy().then(() => render()).catch((error) => console.error("Next FY budget switch failed:", error));
+        return;
+      }
+      if (key.startsWith("filter")) {
+        const filterKey = key.replace("filter", "");
+        const normalizedFilterKey = filterKey.charAt(0).toLowerCase() + filterKey.slice(1);
+        nextFy.filters[normalizedFilterKey] = value || "";
+        nextFy.filters.page = 1;
+        refreshNextFy().then(() => render()).catch((error) => console.error("Next FY filter failed:", error));
+        return;
+      }
+      const setupKeys = new Set(["budgetName", "sourceStrategy", "sourceEntityId", "sourceFinancialYear", "targetFinancialYear", "generationRemarks"]);
+      const ruleMap = {
+        ruleName: "ruleName",
+        ruleType: "ruleType",
+        priority: "priority",
+        ruleLocation: "location",
+        ruleCoding: "coding",
+        ruleCategory: "category",
+        ruleOwner: "owner",
+        growthPercentage: "growthPercentage",
+        fixedAdjustmentAmount: "fixedAdjustmentAmount",
+        ruleRemarks: "remarks"
+      };
+      if (setupKeys.has(key)) {
+        nextFy.setup[key] = value || "";
+        return;
+      }
+      if (ruleMap[key]) {
+        nextFy.assumptionDraft[ruleMap[key]] = value;
+        return;
+      }
+    }
+
+    if (target.classList && target.classList.contains("nextfy-line-input")) {
+      const nextFy = ensureNextFyState();
+      const lineId = target.getAttribute("data-nextfy-line-id") || "";
+      const field = target.getAttribute("data-nextfy-field") || "";
+      if (!lineId || !field) return;
+      const draft = Object.assign({}, nextFy.edits[lineId] || {});
+      draft.expectedLineVersion = target.getAttribute("data-nextfy-line-version") || draft.expectedLineVersion || "";
+      draft[field] = value;
+      nextFy.edits[lineId] = draft;
       return;
     }
 

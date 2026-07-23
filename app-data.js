@@ -53,6 +53,7 @@
     utilizationView: ["Opex Budget Utilization", "Track used budget, remaining budget, and over-budget locations."],
     comparisonView: ["Comparison", "Compare last year expense, current year budget, and growth across locations."],
     latestEstimateView: ["Latest Estimate", "Review and save Latest Estimate values against a captured budget baseline."],
+    nextFyView: ["Next FY Budget", "Generate, review, adjust, approve, and lock the next financial year budget."],
     reportView: ["Report", "Download the full local report as an Excel workbook."]
   };
 
@@ -534,6 +535,36 @@
         cells: [],
         summary: null,
         filters: { coding: "", location: "", severity: "", changedOnly: false, hasRemarks: false, page: 1, pageSize: 25 },
+        edits: {},
+        message: ""
+      },
+      nextFy: {
+        budgets: [],
+        activeBudgetId: "",
+        lines: [],
+        summary: null,
+        preview: null,
+        filters: { targetFinancialYear: "", location: "", coding: "", category: "", owner: "", sourceType: "", page: 1, pageSize: 25 },
+        setup: {
+          budgetName: "",
+          sourceStrategy: "CURRENT_BUDGET",
+          sourceEntityId: "",
+          sourceFinancialYear: "",
+          targetFinancialYear: "",
+          generationRemarks: ""
+        },
+        assumptionDraft: {
+          ruleName: "",
+          ruleType: "GLOBAL_GROWTH",
+          priority: 100,
+          location: "",
+          coding: "",
+          category: "",
+          owner: "",
+          growthPercentage: 0,
+          fixedAdjustmentAmount: 0,
+          remarks: ""
+        },
         edits: {},
         message: ""
       },

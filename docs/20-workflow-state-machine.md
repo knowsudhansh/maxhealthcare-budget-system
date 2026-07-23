@@ -95,3 +95,15 @@ Future API should return:
   }
 }
 ```
+## Next FY Workflow
+
+`GENERATED -> UNDER_REVIEW -> APPROVED -> LOCKED`
+
+Allowed actions:
+
+- `GENERATED`: `START_REVIEW`
+- `UNDER_REVIEW`: `APPROVE`, `RETURN_TO_GENERATED`, `REJECT`
+- `APPROVED`: `LOCK`
+- `LOCKED`: no ordinary transition
+
+`RETURN_TO_GENERATED`, `REJECT`, and `LOCK` require remarks.

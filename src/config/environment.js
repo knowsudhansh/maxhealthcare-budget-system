@@ -144,7 +144,17 @@ function loadEnvironment(env = process.env) {
       leVarianceWarningPercent: Number(env.LE_VARIANCE_WARNING_PERCENT || 10),
       leVarianceMaterialPercent: Number(env.LE_VARIANCE_MATERIAL_PERCENT || 20),
       leVarianceWarningAmount: Number(env.LE_VARIANCE_WARNING_AMOUNT || 100000),
-      leVarianceMaterialAmount: Number(env.LE_VARIANCE_MATERIAL_AMOUNT || 500000)
+      leVarianceMaterialAmount: Number(env.LE_VARIANCE_MATERIAL_AMOUNT || 500000),
+      nextFyBudgetEnabled: parseBoolean(env.NEXT_FY_BUDGET_ENABLED, true),
+      nextFyWorkflowEnforcementEnabled: parseBoolean(env.NEXT_FY_WORKFLOW_ENFORCEMENT_ENABLED, true),
+      nextFyAllowLegacySource: parseBoolean(env.NEXT_FY_ALLOW_LEGACY_SOURCE, false),
+      nextFyAllowManualBaseline: parseBoolean(env.NEXT_FY_ALLOW_MANUAL_BASELINE, false),
+      nextFyAllowGenerationReset: parseBoolean(env.NEXT_FY_ALLOW_GENERATION_RESET, false),
+      nextFyDefaultGrowthPercent: Number(env.NEXT_FY_DEFAULT_GROWTH_PERCENT || 0),
+      nextFyMaxGrowthPercent: Number(env.NEXT_FY_MAX_GROWTH_PERCENT || 100),
+      nextFyMinGrowthPercent: Number(env.NEXT_FY_MIN_GROWTH_PERCENT || -100),
+      nextFyMaxAbsoluteAmount: Number(env.NEXT_FY_MAX_ABSOLUTE_AMOUNT || 10000000000),
+      nextFyMaxBulkLines: Number(env.NEXT_FY_MAX_BULK_LINES || 500)
     }
   };
 
@@ -208,6 +218,20 @@ function loadEnvironment(env = process.env) {
       errors.push(`${key} must be a non-negative number.`);
     }
   });
+  ["nextFyDefaultGrowthPercent", "nextFyMaxGrowthPercent", "nextFyMinGrowthPercent", "nextFyMaxAbsoluteAmount", "nextFyMaxBulkLines"].forEach((key) => {
+    if (!Number.isFinite(config.features[key])) {
+      errors.push(`${key} must be a valid number.`);
+    }
+  });
+  if (config.features.nextFyMinGrowthPercent > config.features.nextFyMaxGrowthPercent) {
+    errors.push("NEXT_FY_MIN_GROWTH_PERCENT must be less than or equal to NEXT_FY_MAX_GROWTH_PERCENT.");
+  }
+  if (config.features.nextFyMaxAbsoluteAmount <= 0) {
+    errors.push("NEXT_FY_MAX_ABSOLUTE_AMOUNT must be greater than zero.");
+  }
+  if (!Number.isInteger(config.features.nextFyMaxBulkLines) || config.features.nextFyMaxBulkLines <= 0) {
+    errors.push("NEXT_FY_MAX_BULK_LINES must be a positive integer.");
+  }
 
   if (errors.length) {
     const error = new Error(`Environment validation failed: ${errors.join(" ")}`);

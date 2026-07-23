@@ -247,3 +247,24 @@ Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature mod
 - Never commit `.env`, private keys, certificates, or credentials.
 - Preserve APP_BASE_PATH for every new route and frontend request.
 - Preserve first-click and pointer-render protections.
+## Next FY Guardrails
+
+- Never overwrite Budget values from Next FY.
+- Never overwrite LE values from Next FY.
+- Never generate from unapproved LE unless controlled legacy mode is enabled.
+- Never represent legacy data as approved.
+- Never calculate from formatted display values.
+- Never trust frontend-calculated totals.
+- Never combine ambiguous assumptions silently.
+- Never regenerate over manual adjustments.
+- Never edit `UNDER_REVIEW`, `APPROVED`, or `LOCKED` Next FY data.
+- Never bypass budget or line version checks.
+- Never duplicate generation for an idempotency key.
+- Never merge Owner and Owner1.
+- Never load the complete dataset into the browser without need.
+- Never apply production migration automatically.
+- Never commit local Excel data.
+- Never commit secrets.
+- Preserve `APP_BASE_PATH`.
+- Preserve first-click and pointer-render protections.
+- Preserve existing API meanings.

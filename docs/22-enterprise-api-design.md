@@ -111,3 +111,6 @@ New APIs must use the existing Phase 3.2 error envelope and request ID behavior.
 - `VARIANCE_REMARKS_REQUIRED`
 - `TRANSFER_VALIDATION_FAILED`
 - `BULK_OPERATION_PARTIAL_FAILURE`
+## Next FY Budget
+
+Next FY APIs are additive under `/api/next-fy/*`. State changes use workflow transitions and generated values are calculated by the backend.

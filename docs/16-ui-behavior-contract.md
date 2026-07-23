@@ -196,3 +196,6 @@ The Latest Estimate tab is a server-paged row editor, not a full million-cell DO
 - Variance displayed after save comes from the backend.
 - Approved LE matrices are read-only.
 - Existing first-click and pointer render gate behavior must be preserved.
+## Next FY Budget
+
+The Next FY tab follows the first-click and pointer-render rules. Setup fields and assumption fields update state without immediate full rerender. Generated line inputs use `.nextfy-line-input` and store dirty line state until `Save Adjustments` is clicked.

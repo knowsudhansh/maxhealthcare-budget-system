@@ -157,3 +157,14 @@ Tables:
 - `latest_estimate_save_batches`
 
 The migration is additive and was not applied to Production, UAT, TiDB demo, or AWS by this implementation phase.
+## Phase 4E Next FY Budget Foundation
+
+Migration `011_next_fy_budget_foundation.sql` adds standalone Next FY tables:
+
+- `next_fy_budgets`
+- `next_fy_budget_lines`
+- `planning_assumption_rules`
+- `next_fy_generation_batches`
+- `next_fy_adjustment_history`
+
+The migration is additive and does not modify Budget or LE source tables. See `docs/40-next-fy-database-design.md`.

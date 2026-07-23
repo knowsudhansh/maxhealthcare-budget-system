@@ -418,3 +418,15 @@ npm run test:le-migration
 ```
 
 Coverage includes variance formulas, zero-budget behavior, severity thresholds, LE workflow transitions, migration safety, API route wiring, UI wiring, and backend-only variance calculation guardrails.
+## Phase 4E Next FY
+
+Run:
+
+- `npm run test:nextfy`
+- `npm run test:nextfy-generation`
+- `npm run test:nextfy-api`
+- `npm run test:nextfy-workflow`
+- `npm run test:nextfy-ui`
+- `npm run test:nextfy-migration`
+
+These tests verify Next FY generation formulas, source snapshots, assumption priority, ambiguous-rule rejection, workflow transitions, API wiring, frontend tab wiring, migration safety, and environment flags.

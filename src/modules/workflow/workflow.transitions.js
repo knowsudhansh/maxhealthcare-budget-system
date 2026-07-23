@@ -1,4 +1,4 @@
-const { BUDGET_STATES, LE_STATES, WORKFLOW_ACTIONS, WORKFLOW_TYPES } = require("./workflow.constants");
+const { BUDGET_STATES, LE_STATES, NEXT_FY_STATES, WORKFLOW_ACTIONS, WORKFLOW_TYPES } = require("./workflow.constants");
 const { WORKFLOW_ERROR_CODES, workflowError } = require("./workflow.errors");
 
 const BUDGET_TRANSITIONS = Object.freeze({
@@ -22,6 +22,7 @@ const BUDGET_TRANSITIONS = Object.freeze({
 
 const REMARKS_REQUIRED_ACTIONS = new Set([
   WORKFLOW_ACTIONS.RETURN_TO_DRAFT,
+  WORKFLOW_ACTIONS.RETURN_TO_GENERATED,
   WORKFLOW_ACTIONS.REJECT,
   WORKFLOW_ACTIONS.LOCK
 ]);
@@ -42,9 +43,25 @@ const LE_TRANSITIONS = Object.freeze({
   [LE_STATES.APPROVED]: Object.freeze({})
 });
 
+const NEXT_FY_TRANSITIONS = Object.freeze({
+  [NEXT_FY_STATES.GENERATED]: Object.freeze({
+    [WORKFLOW_ACTIONS.START_REVIEW]: NEXT_FY_STATES.UNDER_REVIEW
+  }),
+  [NEXT_FY_STATES.UNDER_REVIEW]: Object.freeze({
+    [WORKFLOW_ACTIONS.APPROVE]: NEXT_FY_STATES.APPROVED,
+    [WORKFLOW_ACTIONS.RETURN_TO_GENERATED]: NEXT_FY_STATES.GENERATED,
+    [WORKFLOW_ACTIONS.REJECT]: NEXT_FY_STATES.GENERATED
+  }),
+  [NEXT_FY_STATES.APPROVED]: Object.freeze({
+    [WORKFLOW_ACTIONS.LOCK]: NEXT_FY_STATES.LOCKED
+  }),
+  [NEXT_FY_STATES.LOCKED]: Object.freeze({})
+});
+
 function getTransitionMap(workflowType) {
   if (workflowType === WORKFLOW_TYPES.BUDGET) return BUDGET_TRANSITIONS;
   if (workflowType === WORKFLOW_TYPES.LE) return LE_TRANSITIONS;
+  if (workflowType === WORKFLOW_TYPES.NEXT_FY) return NEXT_FY_TRANSITIONS;
   return {};
 }
 
@@ -81,6 +98,7 @@ function validateTransition({ workflowType, currentState, action, remarks, isLoc
 module.exports = {
   BUDGET_TRANSITIONS,
   LE_TRANSITIONS,
+  NEXT_FY_TRANSITIONS,
   REMARKS_REQUIRED_ACTIONS,
   getNextState,
   validateTransition

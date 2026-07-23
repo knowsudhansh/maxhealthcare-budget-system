@@ -195,3 +195,6 @@ audit_logs     -> entity_type/entity_id
 3. Add read-only workflow projections before blocking edits.
 4. Activate state transition APIs.
 5. Add lock enforcement to write routes only after UAT confirms migration.
+## Next FY Budget
+
+Next FY uses independent source snapshots and adjustment history. See `docs/40-next-fy-database-design.md`.

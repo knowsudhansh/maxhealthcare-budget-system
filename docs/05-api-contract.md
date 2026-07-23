@@ -201,3 +201,6 @@ Budget workflow APIs are additive. Existing Budget Planner, Allocation, Report, 
 See `docs/35-latest-estimate-api-contract.md`.
 
 Latest Estimate endpoints are additive under `/api/latest-estimates/*`. LE never overwrites Budget Planner values. The backend recalculates variance and rejects material variance saves without remarks.
+## Phase 4E Next FY APIs
+
+See `docs/41-next-fy-api-contract.md` for the Phase 4E Next FY endpoint contract. All Next FY routes are additive under `/api/next-fy/*`, preserve existing Budget and LE API meanings, and use the centralized success/error response conventions.

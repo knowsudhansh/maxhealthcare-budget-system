@@ -187,3 +187,17 @@ WORKFLOW_LOCK_ENFORCEMENT_ENABLED=false
 `WORKFLOW_LOCK_ENFORCEMENT_ENABLED=false` is the safe default. It leaves Planner edit/delete behavior backward-compatible while allowing workflow actions and UAT review.
 
 Setting `WORKFLOW_LOCK_ENFORCEMENT_ENABLED=true` activates backend edit/delete restrictions for submitted, under-review, approved, and locked Budget workflows. This must not be enabled before UAT approval.
+## Phase 4E Next FY Feature Flags
+
+- `NEXT_FY_BUDGET_ENABLED=true`
+- `NEXT_FY_WORKFLOW_ENFORCEMENT_ENABLED=true`
+- `NEXT_FY_ALLOW_LEGACY_SOURCE=false`
+- `NEXT_FY_ALLOW_MANUAL_BASELINE=false`
+- `NEXT_FY_ALLOW_GENERATION_RESET=false`
+- `NEXT_FY_DEFAULT_GROWTH_PERCENT=0`
+- `NEXT_FY_MAX_GROWTH_PERCENT=100`
+- `NEXT_FY_MIN_GROWTH_PERCENT=-100`
+- `NEXT_FY_MAX_ABSOLUTE_AMOUNT=10000000000`
+- `NEXT_FY_MAX_BULK_LINES=500`
+
+Only safe booleans are exposed through `app-config.js`. Secrets and database connection settings are never exposed to the browser.
