@@ -453,3 +453,13 @@ Run:
 - `npm run verify:tidb`
 
 The diagnostics tests verify safe database-error serialization, redaction, verification stages, DB/MYSQL conflict detection, missing CA handling, connection-only mode, schema error details, TLS status fallback, and server startup diagnostics.
+
+## Phase 5A Authentication Foundation Tests
+
+Run:
+
+```bash
+npm run test:auth
+```
+
+Coverage includes password hashing, password policy, session token hashing, HttpOnly cookie flags, auth environment validation, unauthenticated `/api/auth/me`, bootstrap safety checks, and the additive auth migration shape.

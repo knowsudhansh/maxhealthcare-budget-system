@@ -286,3 +286,13 @@ Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature mod
 - Never apply transfer migrations automatically to Production, UAT, or TiDB demo.
 - Preserve `APP_BASE_PATH` for every transfer API call.
 - Preserve first-click and pointer-render protections.
+
+## Phase 5 Authentication Guardrails
+
+- Never trust roles, permissions, locations, user IDs, approval rights, or ownership values supplied by the browser.
+- Never store authentication tokens in `localStorage` or expose session tokens in JSON.
+- Never store plaintext passwords or log passwords, hashes, cookies, or session tokens.
+- `owner` and `owner1` are business fields, not authenticated user identity fields.
+- Existing financial APIs must not be protected by frontend hiding alone; backend middleware must enforce every permission boundary in Phase 5B-5D.
+- Do not apply `013_authentication_rbac_foundation.sql` to UAT or Production without explicit approval.
+- Do not create default `admin/admin` credentials.

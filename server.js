@@ -24,6 +24,7 @@ const { ERROR_CODES, AppError, notFoundError, validationError } = require("./src
 const { requestIdMiddleware } = require("./src/middleware/request-id");
 const { requestLogger } = require("./src/middleware/request-logger");
 const { errorHandler } = require("./src/middleware/error-handler");
+const { optionalAuthentication } = require("./src/middleware/authentication");
 const {
   normalizeBudgetSubmission,
   validateBudgetId
@@ -39,6 +40,7 @@ const { createWorkflowRouter } = require("./src/modules/workflow/workflow.routes
 const { createLatestEstimateRouter } = require("./src/modules/latest-estimates/latest-estimate.routes");
 const { createNextFyRouter } = require("./src/modules/next-fy/next-fy.routes");
 const { createTransferRouter } = require("./src/modules/transfers/transfer.routes");
+const { createAuthRouter } = require("./src/modules/auth/auth.routes");
 const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
@@ -80,6 +82,7 @@ const COLUMN_ORDER = [
 app.use(express.json({ limit: "10mb" }));
 app.use(requestIdMiddleware);
 app.use(requestLogger);
+app.use(optionalAuthentication);
 
 function getAllowedOrigins() {
   if (!runtimeConfig) return [];
@@ -222,6 +225,7 @@ app.get("/:asset", (req, res, next) => {
   return sendStaticFile(res, asset);
 });
 
+app.use("/api", createAuthRouter());
 app.use("/api", createWorkflowRouter());
 app.use("/api", createLatestEstimateRouter());
 app.use("/api", createNextFyRouter());
@@ -1201,6 +1205,7 @@ async function startServer() {
     runtimeConfig = loadEnvironment(process.env);
     logEnvironmentWarnings(runtimeConfig);
     app.locals.runtimeConfig = runtimeConfig;
+    app.set("trust proxy", Boolean(runtimeConfig.auth && runtimeConfig.auth.trustProxy));
     startupStage = "load-db-secret";
     const dbSecret = await loadDbSecret(runtimeConfig);
     startupStage = "initialize-pool";

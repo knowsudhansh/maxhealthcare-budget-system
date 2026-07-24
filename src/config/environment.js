@@ -150,6 +150,36 @@ function loadEnvironment(env = process.env) {
     "DB_CONNECT_TIMEOUT_MS",
     errors
   );
+  const authSessionTtlMinutes = parseInteger(
+    env.AUTH_SESSION_TTL_MINUTES,
+    720,
+    "AUTH_SESSION_TTL_MINUTES",
+    errors
+  );
+  const authIdleTimeoutMinutes = parseInteger(
+    env.AUTH_IDLE_TIMEOUT_MINUTES,
+    60,
+    "AUTH_IDLE_TIMEOUT_MINUTES",
+    errors
+  );
+  const authMaxLoginAttempts = parseInteger(
+    env.AUTH_MAX_LOGIN_ATTEMPTS,
+    5,
+    "AUTH_MAX_LOGIN_ATTEMPTS",
+    errors
+  );
+  const authLockoutMinutes = parseInteger(
+    env.AUTH_LOCKOUT_MINUTES,
+    15,
+    "AUTH_LOCKOUT_MINUTES",
+    errors
+  );
+  const authPasswordMinLength = parseInteger(
+    env.AUTH_PASSWORD_MIN_LENGTH,
+    12,
+    "AUTH_PASSWORD_MIN_LENGTH",
+    errors
+  );
 
   const config = {
     appEnv,
@@ -160,6 +190,19 @@ function loadEnvironment(env = process.env) {
     awsRegion: String(env.AWS_REGION || "").trim(),
     logLevel: String(env.LOG_LEVEL || "info").trim(),
     warnings,
+    auth: {
+      sessionSecret: String(env.AUTH_SESSION_SECRET || "").trim(),
+      sessionTtlMinutes: authSessionTtlMinutes,
+      idleTimeoutMinutes: authIdleTimeoutMinutes,
+      cookieName: String(env.AUTH_COOKIE_NAME || "max_it_opex_session").trim(),
+      cookieSecure: parseBoolean(env.AUTH_COOKIE_SECURE, appEnv === "production" || appEnv === "uat"),
+      cookieSameSite: String(env.AUTH_COOKIE_SAME_SITE || "Lax").trim(),
+      maxLoginAttempts: authMaxLoginAttempts,
+      lockoutMinutes: authLockoutMinutes,
+      passwordMinLength: authPasswordMinLength,
+      trustProxy: parseBoolean(env.AUTH_TRUST_PROXY, false),
+      csrfEnabled: parseBoolean(env.CSRF_ENABLED, false)
+    },
     db: {
       secretArn: String(env.DB_SECRET_ARN || "").trim(),
       host: String(resolvedDbHost || "").trim(),
@@ -214,6 +257,26 @@ function loadEnvironment(env = process.env) {
       "http://127.0.0.1:3000",
       "http://127.0.0.1:3001"
     ];
+  }
+
+  if (!["Lax", "Strict", "None"].includes(config.auth.cookieSameSite)) {
+    errors.push("AUTH_COOKIE_SAME_SITE must be Lax, Strict, or None.");
+  }
+  if (!/^[A-Za-z0-9_.-]{3,80}$/.test(config.auth.cookieName)) {
+    errors.push("AUTH_COOKIE_NAME must contain only letters, numbers, underscore, dot, or hyphen.");
+  }
+  if (config.auth.cookieSameSite === "None" && !config.auth.cookieSecure) {
+    errors.push("AUTH_COOKIE_SECURE=true is required when AUTH_COOKIE_SAME_SITE=None.");
+  }
+  if (config.auth.passwordMinLength < 12) {
+    errors.push("AUTH_PASSWORD_MIN_LENGTH must be at least 12.");
+  }
+  if (config.appEnv === "uat" || config.appEnv === "production") {
+    if (!config.auth.sessionSecret || config.auth.sessionSecret.length < 32) {
+      errors.push("AUTH_SESSION_SECRET with at least 32 characters is required for UAT and Production.");
+    }
+  } else if (config.auth.sessionSecret && config.auth.sessionSecret.length < 32) {
+    errors.push("AUTH_SESSION_SECRET must be at least 32 characters when set.");
   }
 
   if (hasSecret && !config.awsRegion) {

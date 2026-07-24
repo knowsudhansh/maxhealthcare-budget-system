@@ -217,3 +217,11 @@
 ## Phase 4E
 
 - Added Next FY Budget foundation with source snapshots, assumption rules, transactional generation, manual adjustments, workflow integration, summary/comparison APIs, frontend tab, tests, and documentation.
+
+## Phase 5A - Authentication Foundation
+
+- Added additive authentication/RBAC foundation migration `013_authentication_rbac_foundation.sql`.
+- Added bcrypt password hashing, opaque hashed database sessions, HttpOnly cookie helpers, login/logout/me/change-password APIs, and bootstrap-admin CLI.
+- Added validated auth environment settings and production/UAT session-secret requirements.
+- Added Phase 5A tests and authentication architecture/runbook documentation.
+- RBAC, location access enforcement, CSRF enforcement, and admin UI remain future Phase 5B-5F work.

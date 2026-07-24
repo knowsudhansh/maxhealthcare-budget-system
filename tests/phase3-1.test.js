@@ -30,6 +30,7 @@ function baseEnv(overrides = {}) {
     DB_USER: "budget_user",
     DB_PASSWORD: "secret",
     DB_SSL: "false",
+    AUTH_SESSION_SECRET: "test-auth-session-secret-with-32-characters",
     ...overrides
   };
 }

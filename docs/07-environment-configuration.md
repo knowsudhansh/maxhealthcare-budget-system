@@ -203,3 +203,23 @@ Setting `WORKFLOW_LOCK_ENFORCEMENT_ENABLED=true` activates backend edit/delete r
 - `NEXT_FY_MAX_BULK_LINES=500`
 
 Only safe booleans are exposed through `app-config.js`. Secrets and database connection settings are never exposed to the browser.
+
+## Authentication Environment
+
+Phase 5A adds validated authentication configuration:
+
+```text
+AUTH_SESSION_SECRET
+AUTH_SESSION_TTL_MINUTES
+AUTH_IDLE_TIMEOUT_MINUTES
+AUTH_COOKIE_NAME
+AUTH_COOKIE_SECURE
+AUTH_COOKIE_SAME_SITE
+AUTH_MAX_LOGIN_ATTEMPTS
+AUTH_LOCKOUT_MINUTES
+AUTH_PASSWORD_MIN_LENGTH
+AUTH_TRUST_PROXY
+CSRF_ENABLED
+```
+
+`AUTH_SESSION_SECRET` must be at least 32 characters in UAT and Production. It must never be committed or printed. `AUTH_COOKIE_SECURE=true` is required when `AUTH_COOKIE_SAME_SITE=None`.

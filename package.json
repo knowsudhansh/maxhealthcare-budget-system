@@ -42,10 +42,13 @@
     "test:docker": "node tests/docker-containerization.test.js",
     "test:formatting": "node tests/financial-formatting.test.js",
     "test:planner-ui": "node tests/planner-coding-ui.test.js",
-    "test:clearable-fields": "node tests/clearable-fields.test.js"
+    "test:clearable-fields": "node tests/clearable-fields.test.js",
+    "auth:bootstrap-admin": "node scripts/auth-bootstrap-admin.js",
+    "test:auth": "node tests/auth-foundation.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1085.0",
+    "bcryptjs": "^2.4.3",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^4.22.1",
