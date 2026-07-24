@@ -17,6 +17,7 @@ const {
   checkDatabaseReady,
   getSafeDatabaseHealth
 } = require("./src/db/health");
+const { serializeDatabaseError } = require("./src/db/error-diagnostics");
 const { withTransaction } = require("./src/db/transaction");
 const { writeAuditEvent } = require("./src/audit/audit-service");
 const { ERROR_CODES, AppError, notFoundError, validationError } = require("./src/errors/app-error");
@@ -232,6 +233,12 @@ function sanitize(value) {
 
 function mysqlConfigured() {
   return hasPool();
+}
+
+function logEnvironmentWarnings(config) {
+  (config && config.warnings ? config.warnings : []).forEach((warning) => {
+    console.warn(`Configuration warning: ${warning}`);
+  });
 }
 
 function hasGoogleCredentials() {
@@ -1189,11 +1196,21 @@ app.get("/health/ready", async (req, res) => {
 app.use(errorHandler);
 
 async function startServer() {
-  runtimeConfig = loadEnvironment(process.env);
-  app.locals.runtimeConfig = runtimeConfig;
-  const dbSecret = await loadDbSecret(runtimeConfig);
-  await initializePool(runtimeConfig, dbSecret);
-  ensureDataDirectory();
+  let startupStage = "load-environment";
+  try {
+    runtimeConfig = loadEnvironment(process.env);
+    logEnvironmentWarnings(runtimeConfig);
+    app.locals.runtimeConfig = runtimeConfig;
+    startupStage = "load-db-secret";
+    const dbSecret = await loadDbSecret(runtimeConfig);
+    startupStage = "initialize-pool";
+    await initializePool(runtimeConfig, dbSecret);
+    startupStage = "ensure-data-directory";
+    ensureDataDirectory();
+  } catch (error) {
+    error.startupStage = startupStage;
+    throw error;
+  }
 
   httpServer = app.listen(runtimeConfig.port, "0.0.0.0", () => {
     console.log(`IT Opex app running at http://localhost:${runtimeConfig.port}`);
@@ -1248,7 +1265,7 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 
 if (require.main === module) {
   startServer().catch((error) => {
-    console.error(error && error.code ? error.code : "STARTUP_FAILED");
+    console.error(JSON.stringify(serializeDatabaseError(error, { stage: error && error.startupStage ? error.startupStage : "startup" }), null, 2));
     console.error("Server startup failed.");
     process.exit(1);
   });

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### TiDB Diagnostics Hardening
+
+- Added safe database-error diagnostics with verification/startup stages.
+- Added TiDB connection-only verification mode.
+- Added DB/MYSQL environment conflict detection and deprecated fallback warnings.
+- Improved server startup database error reporting without exposing secrets.
+- Added TiDB diagnostics tests.
+- Existing formulas changed: No.
+
 ### Phase 4F Enterprise Budget Transfer Engine
 
 - Added additive transfer foundation migration proposal `012_budget_transfer_foundation.sql`.

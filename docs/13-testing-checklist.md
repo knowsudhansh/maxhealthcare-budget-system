@@ -443,3 +443,13 @@ Run:
 - `npm run test:transfer-migration`
 
 These tests verify transfer validation, ledger math, posting/reversal entries, Transfer workflow transitions, additive migration safety, API wiring, UI wiring, and feature flags.
+
+## TiDB Diagnostics
+
+Run:
+
+- `npm run test:tidb-diagnostics`
+- `npm run verify:tidb:connection`
+- `npm run verify:tidb`
+
+The diagnostics tests verify safe database-error serialization, redaction, verification stages, DB/MYSQL conflict detection, missing CA handling, connection-only mode, schema error details, TLS status fallback, and server startup diagnostics.

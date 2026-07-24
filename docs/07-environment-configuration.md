@@ -122,6 +122,8 @@ ENABLE_GOOGLE_SHEETS_SYNC=false
 
 `DB_SSL_CA` is a filesystem path, not certificate contents. Relative paths are resolved from the project root. The CA file is read once during startup and passed to `mysql2` as verified TLS.
 
+`DB_*` names are authoritative. Legacy `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_DATABASE`, `MYSQL_USER`, and `MYSQL_PASSWORD` may be used only as a temporary fallback. If both `DB_*` and the matching `MYSQL_*` variable are present and differ, startup fails with `DB_CONFIG_CONFLICT`. Warnings name only the deprecated variable names and never print values.
+
 Never commit `.env`, `.env.docker`, TiDB passwords, CA certificates, or secret files.
 
 ## Base Path

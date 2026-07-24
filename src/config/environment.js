@@ -58,6 +58,12 @@ function parseBoolean(value, fallback = false) {
   return fallback;
 }
 
+function isBooleanString(value) {
+  if (value === undefined || value === null || value === "") return true;
+  const normalized = String(value).trim().toLowerCase();
+  return ["1", "true", "yes", "y", "on", "0", "false", "no", "n", "off"].includes(normalized);
+}
+
 function parseOrigins(value) {
   return String(value || "")
     .split(",")
@@ -80,8 +86,32 @@ function requireValue(value, name, errors) {
   }
 }
 
+function hasValue(value) {
+  return value !== undefined && value !== null && String(value).trim() !== "";
+}
+
+function resolveEnvAlias(env, primaryName, legacyName, warnings, errors) {
+  const primaryValue = env[primaryName];
+  const legacyValue = env[legacyName];
+  const primaryPresent = hasValue(primaryValue);
+  const legacyPresent = hasValue(legacyValue);
+
+  if (primaryPresent && legacyPresent && String(primaryValue) !== String(legacyValue)) {
+    errors.push(`${primaryName}/${legacyName} conflict. Use ${primaryName}; remove the legacy ${legacyName} value.`);
+    return primaryValue;
+  }
+
+  if (!primaryPresent && legacyPresent) {
+    warnings.push(`${legacyName} is deprecated. Use ${primaryName}.`);
+    return legacyValue;
+  }
+
+  return primaryValue;
+}
+
 function loadEnvironment(env = process.env) {
   const errors = [];
+  const warnings = [];
   const appEnv = normalizeAppEnv(env.APP_ENV);
   let appBasePath = "";
 
@@ -97,7 +127,17 @@ function loadEnvironment(env = process.env) {
     errors.push("APP_ENV must be development, uat, or production.");
   }
 
-  const dbPort = parseInteger(env.DB_PORT || env.MYSQL_PORT, 3306, "DB_PORT", errors);
+  const resolvedDbHost = resolveEnvAlias(env, "DB_HOST", "MYSQL_HOST", warnings, errors);
+  const resolvedDbPort = resolveEnvAlias(env, "DB_PORT", "MYSQL_PORT", warnings, errors);
+  const resolvedDbName = resolveEnvAlias(env, "DB_NAME", "MYSQL_DATABASE", warnings, errors);
+  const resolvedDbUser = resolveEnvAlias(env, "DB_USER", "MYSQL_USER", warnings, errors);
+  const resolvedDbPassword = resolveEnvAlias(env, "DB_PASSWORD", "MYSQL_PASSWORD", warnings, errors);
+
+  if (!isBooleanString(env.DB_SSL)) {
+    errors.push("DB_SSL must be true or false.");
+  }
+
+  const dbPort = parseInteger(resolvedDbPort, 3306, "DB_PORT", errors);
   const dbConnectionLimit = parseInteger(
     env.DB_CONNECTION_LIMIT,
     10,
@@ -119,13 +159,14 @@ function loadEnvironment(env = process.env) {
     allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS),
     awsRegion: String(env.AWS_REGION || "").trim(),
     logLevel: String(env.LOG_LEVEL || "info").trim(),
+    warnings,
     db: {
       secretArn: String(env.DB_SECRET_ARN || "").trim(),
-      host: String(env.DB_HOST || env.MYSQL_HOST || "").trim(),
+      host: String(resolvedDbHost || "").trim(),
       port: dbPort,
-      database: String(env.DB_NAME || env.MYSQL_DATABASE || "").trim(),
-      user: String(env.DB_USER || env.MYSQL_USER || "").trim(),
-      password: String(env.DB_PASSWORD || env.MYSQL_PASSWORD || ""),
+      database: String(resolvedDbName || "").trim(),
+      user: String(resolvedDbUser || "").trim(),
+      password: String(resolvedDbPassword || ""),
       ssl: parseBoolean(env.DB_SSL, false),
       sslCaPath: String(env.DB_SSL_CA || "").trim(),
       connectionLimit: dbConnectionLimit,
@@ -238,7 +279,7 @@ function loadEnvironment(env = process.env) {
 
   if (errors.length) {
     const error = new Error(`Environment validation failed: ${errors.join(" ")}`);
-    error.code = "ENV_VALIDATION_ERROR";
+    error.code = errors.some((message) => /conflict/i.test(message)) ? "DB_CONFIG_CONFLICT" : "ENV_VALIDATION_ERROR";
     error.details = errors;
     throw error;
   }
@@ -252,6 +293,8 @@ module.exports = {
   loadEnvironment,
   normalizeBasePath,
   normalizeAppEnv,
+  isBooleanString,
   parseBoolean,
-  parseOrigins
+  parseOrigins,
+  resolveEnvAlias
 };

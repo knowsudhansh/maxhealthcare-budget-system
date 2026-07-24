@@ -238,6 +238,12 @@ TiDB is supported only as a temporary shared demo database for the meeting. It i
 npm run verify:tidb
 ```
 
+For connection-only diagnostics that skip schema checks:
+
+```powershell
+npm run verify:tidb:connection
+```
+
 Expected safe output:
 
 ```text
@@ -247,6 +253,8 @@ Database: budget_app
 Required schema: OK
 Planner records: <count>
 ```
+
+On failure, the verifier prints a safe structured diagnostic with stage, code, errno, SQL state, SQL message, and message. It does not print passwords, connection strings, secret payloads, TLS certificate contents, or stack traces unless `TIDB_VERIFY_DEBUG_STACK=true` is explicitly set for local debugging.
 
 Seed demo records only when explicitly needed:
 
