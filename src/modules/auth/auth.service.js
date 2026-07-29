@@ -77,7 +77,7 @@ async function recordSecurityEvent(db, event) {
 async function login(payload, context = {}) {
   const config = getAuthConfig(context.runtimeConfig);
   const info = context.clientInfo || {};
-  return withTransaction(async (connection) => {
+  const result = await withTransaction(async (connection) => {
     const identifierDigest = identifierHash(payload.identifier, config.sessionSecret);
     const user = await repo.findUserByIdentifier(connection, payload.identifier);
 
@@ -89,7 +89,7 @@ async function login(payload, context = {}) {
         ipAddress: info.ipAddress,
         userAgent: info.userAgent
       });
-      throw invalidCredentialsError();
+      return { authFailure: invalidCredentialsError() };
     }
 
     if (user.status === USER_STATUS.DISABLED) {
@@ -101,7 +101,7 @@ async function login(payload, context = {}) {
         ipAddress: info.ipAddress,
         userAgent: info.userAgent
       });
-      throw authError(403, AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.");
+      return { authFailure: authError(403, AUTH_ERROR_CODES.ACCOUNT_DISABLED, "Account is disabled.") };
     }
 
     const lockedUntil = user.lockedUntil ? new Date(user.lockedUntil) : null;
@@ -114,7 +114,7 @@ async function login(payload, context = {}) {
         ipAddress: info.ipAddress,
         userAgent: info.userAgent
       });
-      throw accountLockedError();
+      return { authFailure: accountLockedError() };
     }
 
     const passwordOk = await verifyPassword(payload.password, user.passwordHash);
@@ -143,7 +143,7 @@ async function login(payload, context = {}) {
           userAgent: info.userAgent
         });
       }
-      throw invalidCredentialsError();
+      return { authFailure: invalidCredentialsError() };
     }
 
     await repo.markLoginSuccess(connection, user.id);
@@ -180,6 +180,10 @@ async function login(payload, context = {}) {
       user: publicUser(user)
     };
   }, { requestId: context.requestId || "" });
+  if (result && result.authFailure) {
+    throw result.authFailure;
+  }
+  return result;
 }
 
 async function loadSession(token, runtimeConfig) {

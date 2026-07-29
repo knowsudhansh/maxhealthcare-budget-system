@@ -225,3 +225,11 @@
 - Added validated auth environment settings and production/UAT session-secret requirements.
 - Added Phase 5A tests and authentication architecture/runbook documentation.
 - RBAC, location access enforcement, CSRF enforcement, and admin UI remain future Phase 5B-5F work.
+
+## Phase 5A Operational Validation
+
+- Added a safe migration runner and `migrate:auth` command for `013_authentication_rbac_foundation.sql`.
+- Applied migration 013 to the configured development TiDB database and recorded it in `schema_migrations`.
+- Verified existing Budget/Allocation record counts were preserved after migration.
+- Fixed failed-login persistence so login attempts and lockout counters commit before safe public authentication errors are returned.
+- Added Phase 5A UAT evidence in `docs/53-phase-5a-authentication-uat.md`.

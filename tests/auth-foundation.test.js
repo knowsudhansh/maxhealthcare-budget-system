@@ -161,6 +161,10 @@ async function run() {
   assert.ok(!bootstrapScript.includes("admin/admin"));
   assert.ok(!bootstrapScript.includes("console.log(inputPayload.password"));
 
+  const authService = fs.readFileSync("src/modules/auth/auth.service.js", "utf8");
+  assert.ok(authService.includes("return { authFailure: invalidCredentialsError() }"), "Failed login attempts must commit before returning a public auth error.");
+  assert.ok(authService.includes("if (result && result.authFailure)"), "Auth failure should be thrown only after transaction commit.");
+
   console.log("Phase 5A authentication foundation tests passed.");
 }
 

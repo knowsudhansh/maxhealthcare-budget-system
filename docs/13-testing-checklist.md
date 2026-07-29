@@ -463,3 +463,13 @@ npm run test:auth
 ```
 
 Coverage includes password hashing, password policy, session token hashing, HttpOnly cookie flags, auth environment validation, unauthenticated `/api/auth/me`, bootstrap safety checks, and the additive auth migration shape.
+
+## Migration Runner Tests
+
+Run:
+
+```bash
+npm run test:migration-runner
+```
+
+Coverage includes safe argument parsing, statement splitting, destructive-operation blocking, and rollback-comment handling.

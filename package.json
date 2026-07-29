@@ -44,7 +44,10 @@
     "test:planner-ui": "node tests/planner-coding-ui.test.js",
     "test:clearable-fields": "node tests/clearable-fields.test.js",
     "auth:bootstrap-admin": "node scripts/auth-bootstrap-admin.js",
-    "test:auth": "node tests/auth-foundation.test.js"
+    "test:auth": "node tests/auth-foundation.test.js",
+    "migrate:apply": "node scripts/apply-migration.js",
+    "migrate:auth": "node scripts/apply-migration.js --file=013_authentication_rbac_foundation.sql",
+    "test:migration-runner": "node tests/migration-runner.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1085.0",
