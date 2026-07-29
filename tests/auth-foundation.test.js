@@ -93,11 +93,13 @@ async function run() {
   const cookie = serializeCookie("max_it_opex_session", token, {
     secure: true,
     sameSite: "Lax",
+    path: "/budget",
     maxAgeSeconds: 60
   });
   assert.ok(cookie.includes("HttpOnly"));
   assert.ok(cookie.includes("Secure"));
   assert.ok(cookie.includes("SameSite=Lax"));
+  assert.ok(cookie.includes("Path=/budget"));
   assert.strictEqual(parseCookies(cookie).max_it_opex_session, token);
 
   assert.deepStrictEqual(normalizeLoginPayload({ employeeId: "EMP001", password: "x" }), {

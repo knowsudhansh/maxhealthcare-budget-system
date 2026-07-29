@@ -6,6 +6,14 @@ const { authError } = require("./auth.errors");
 const { hashPassword, validatePasswordPolicy, verifyPassword } = require("./password");
 const { createSessionToken, hashSessionToken } = require("./session");
 const repo = require("./auth.repository");
+const { normalizeBasePath } = require("../../config/environment");
+const {
+  PERMISSIONS,
+  ROLE_CODES,
+  ROLE_PERMISSION_MATRIX,
+  ROLES
+} = require("../rbac/rbac.constants");
+const rbacRepo = require("../rbac/rbac.repository");
 
 const DEVELOPMENT_SESSION_SECRET = crypto.randomBytes(32).toString("hex");
 
@@ -45,11 +53,15 @@ function mysqlDate(date) {
 
 function getAuthConfig(runtimeConfig) {
   const auth = runtimeConfig && runtimeConfig.auth ? runtimeConfig.auth : {};
+  const appBasePath = runtimeConfig && Object.prototype.hasOwnProperty.call(runtimeConfig, "appBasePath")
+    ? runtimeConfig.appBasePath
+    : normalizeBasePath(process.env.APP_BASE_PATH || "");
   return {
     sessionSecret: auth.sessionSecret || process.env.AUTH_SESSION_SECRET || DEVELOPMENT_SESSION_SECRET,
     sessionTtlMinutes: auth.sessionTtlMinutes || Number(process.env.AUTH_SESSION_TTL_MINUTES || 720),
     idleTimeoutMinutes: auth.idleTimeoutMinutes || Number(process.env.AUTH_IDLE_TIMEOUT_MINUTES || 60),
     cookieName: auth.cookieName || process.env.AUTH_COOKIE_NAME || "max_it_opex_session",
+    cookiePath: auth.cookiePath || appBasePath || "/",
     cookieSecure: Object.prototype.hasOwnProperty.call(auth, "cookieSecure") ? auth.cookieSecure : process.env.AUTH_COOKIE_SECURE === "true",
     cookieSameSite: auth.cookieSameSite || process.env.AUTH_COOKIE_SAME_SITE || "Lax",
     maxLoginAttempts: auth.maxLoginAttempts || Number(process.env.AUTH_MAX_LOGIN_ATTEMPTS || 5),
@@ -267,12 +279,16 @@ async function bootstrapAdmin(payload, context = {}) {
       status: USER_STATUS.PASSWORD_CHANGE_REQUIRED,
       mustChangePassword: true
     });
-    const role = await repo.upsertRole(connection, {
-      code: "SUPER_ADMIN",
-      name: "Super Admin",
-      description: "Bootstrap enterprise administrator with full future administrative access.",
-      isSystemRole: true
-    });
+    for (const roleDefinition of ROLES) await rbacRepo.upsertRole(connection, roleDefinition);
+    for (const permission of PERMISSIONS) await rbacRepo.upsertPermission(connection, permission);
+    for (const [roleCode, permissionCodes] of Object.entries(ROLE_PERMISSION_MATRIX)) {
+      const seededRole = await rbacRepo.findRoleByCode(connection, roleCode);
+      const seededPermissions = await rbacRepo.findPermissionsByCodes(connection, permissionCodes);
+      for (const permission of seededPermissions) {
+        await rbacRepo.assignPermissionToRole(connection, seededRole.id, permission.id);
+      }
+    }
+    const role = await rbacRepo.findRoleByCode(connection, ROLE_CODES.SUPER_ADMIN);
     if (role && role.id) {
       await repo.assignRole(connection, user.id, role.id, user.id);
     }

@@ -473,3 +473,16 @@ npm run test:migration-runner
 ```
 
 Coverage includes safe argument parsing, statement splitting, destructive-operation blocking, and rollback-comment handling.
+
+## Phase 5B RBAC And Base Path
+
+Run:
+
+```bash
+npm run test:rbac
+npm run test:base-path
+```
+
+Coverage includes RBAC registry seeding, permission middleware, effective permission resolution, root/prefixed/nested route handling, auth and RBAC routes below `APP_BASE_PATH`, cookie path matching, and prevention of unprefixed `/api/*` bypass when a non-root base path is configured.
+
+Manual authenticated RBAC UAT remains blocked until the Phase 5A bootstrap administrator is created with safe credentials.

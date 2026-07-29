@@ -33,6 +33,25 @@ function normalizeBasePath(value) {
   return `/${segments.join("/")}`;
 }
 
+function publicBasePath(value) {
+  return normalizeBasePath(value) || "/";
+}
+
+function trimSlashes(value) {
+  return String(value || "").replace(/^\/+|\/+$/g, "");
+}
+
+function joinBasePath(basePath, childPath) {
+  const normalizedBase = normalizeBasePath(basePath);
+  const normalizedChild = trimSlashes(childPath);
+  if (!normalizedChild) return normalizedBase || "/";
+  return `${normalizedBase}/${normalizedChild}`;
+}
+
+function getApiBasePath(appBasePath) {
+  return joinBasePath(appBasePath, "api");
+}
+
 function normalizeAppEnv(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (normalized === "dev" || normalized === "local") return "development";
@@ -185,6 +204,8 @@ function loadEnvironment(env = process.env) {
     appEnv,
     port: parseInteger(env.PORT, 3000, "PORT", errors),
     appBasePath,
+    publicAppBasePath: publicBasePath(appBasePath),
+    apiBasePath: getApiBasePath(appBasePath),
     frontendUrl: String(env.FRONTEND_URL || "").trim(),
     allowedOrigins: parseOrigins(env.ALLOWED_ORIGINS),
     awsRegion: String(env.AWS_REGION || "").trim(),
@@ -195,6 +216,7 @@ function loadEnvironment(env = process.env) {
       sessionTtlMinutes: authSessionTtlMinutes,
       idleTimeoutMinutes: authIdleTimeoutMinutes,
       cookieName: String(env.AUTH_COOKIE_NAME || "max_it_opex_session").trim(),
+      cookiePath: publicBasePath(appBasePath),
       cookieSecure: parseBoolean(env.AUTH_COOKIE_SECURE, appEnv === "production" || appEnv === "uat"),
       cookieSameSite: String(env.AUTH_COOKIE_SAME_SITE || "Lax").trim(),
       maxLoginAttempts: authMaxLoginAttempts,
@@ -353,6 +375,8 @@ function loadEnvironment(env = process.env) {
 module.exports = {
   containsAnyTerm,
   isLocalhostHost,
+  getApiBasePath,
+  joinBasePath,
   loadEnvironment,
   normalizeBasePath,
   normalizeAppEnv,

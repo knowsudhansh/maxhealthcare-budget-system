@@ -26,7 +26,7 @@ function parseCookies(header) {
 
 function serializeCookie(name, value, options = {}) {
   const parts = [`${encodeURIComponent(name)}=${encodeURIComponent(value)}`];
-  parts.push("Path=/");
+  parts.push(`Path=${options.path || "/"}`);
   parts.push("HttpOnly");
   if (options.secure) parts.push("Secure");
   if (options.sameSite) parts.push(`SameSite=${options.sameSite}`);
@@ -38,6 +38,7 @@ function clearSessionCookie(config) {
   return serializeCookie(config.cookieName, "", {
     secure: config.cookieSecure,
     sameSite: config.cookieSameSite,
+    path: config.cookiePath || "/",
     maxAgeSeconds: 0
   });
 }

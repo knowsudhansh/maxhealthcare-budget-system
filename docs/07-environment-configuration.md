@@ -148,12 +148,18 @@ APP_BASE_PATH=/budget-app
 The frontend receives only:
 
 ```javascript
-window.APP_CONFIG = { basePath: "/budget-app" };
+window.APP_CONFIG = {
+  basePath: "/budget-app",
+  appBasePath: "/budget-app",
+  apiBasePath: "/budget-app/api"
+};
 ```
 
 No database or AWS secrets are exposed through this endpoint.
 
 Phase 4A keeps both root and path-based modes active. Frontend API calls must continue to use the runtime URL helper instead of hardcoded root paths.
+
+Phase 5B derives `apiBasePath` from `APP_BASE_PATH`; there is no separate `API_BASE_PATH` environment variable. This prevents mismatched route prefixes and cookie scopes.
 
 ## Secrets Manager Boundary
 
@@ -223,3 +229,20 @@ CSRF_ENABLED
 ```
 
 `AUTH_SESSION_SECRET` must be at least 32 characters in UAT and Production. It must never be committed or printed. `AUTH_COOKIE_SECURE=true` is required when `AUTH_COOKIE_SAME_SITE=None`.
+
+The session cookie path follows `APP_BASE_PATH`:
+
+- root mode -> `/`
+- `/budget` -> `/budget`
+- `/apps/it-opex` -> `/apps/it-opex`
+
+Cookie creation and clearing must use the same path.
+
+## Phase 5B RBAC Commands
+
+```bash
+npm run seed:rbac
+npm run test:rbac
+```
+
+`seed:rbac` is idempotent and must be run only against an approved development/UAT target. It does not create users or credentials.

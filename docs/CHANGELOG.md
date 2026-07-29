@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Phase 5B RBAC Authorization And Base Path
+
+- Added database-backed RBAC role and permission registry.
+- Added idempotent RBAC seed command and protected RBAC administration APIs.
+- Added trusted permission resolution from server-side sessions.
+- Added reusable permission middleware for `401` and `403` authorization handling.
+- Standardized safe frontend `apiBasePath` runtime config and base-path-aware session cookie paths.
+- Blocked unprefixed `/api/*` bypass when a non-root `APP_BASE_PATH` is configured.
+- Added focused RBAC and base-path tests.
+- Existing formulas changed: No.
+
 ### TiDB Diagnostics Hardening
 
 - Added safe database-error diagnostics with verification/startup stages.

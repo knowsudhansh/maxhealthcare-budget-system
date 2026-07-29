@@ -7,6 +7,7 @@ const { normalizeBasePath } = require("../src/config/environment");
 const {
   buildApiUrl,
   buildAppUrl,
+  getApiBasePath,
   normalizeBasePath: normalizeFrontendBasePath
 } = require("../app-utils");
 const {
@@ -99,6 +100,7 @@ async function run() {
   assert.strictEqual(normalizeBasePath("budget-app"), "/budget-app");
   assert.strictEqual(normalizeBasePath("/budget-app"), "/budget-app");
   assert.strictEqual(normalizeBasePath("/budget-app/"), "/budget-app");
+  assert.strictEqual(normalizeBasePath("/apps/it-opex/"), "/apps/it-opex");
   assert.throws(() => normalizeBasePath("/budget-app?x=1"), /malformed/);
   assert.throws(() => normalizeBasePath("/budget-app#x"), /malformed/);
   assert.throws(() => normalizeBasePath("https://example.com/budget-app"), /malformed/);
@@ -140,6 +142,7 @@ async function run() {
     const config = await request(server, "/budget-app/app-config.js");
     assert.strictEqual(config.statusCode, 200);
     assert.match(config.body, /basePath":"\/budget-app"/);
+    assert.match(config.body, /apiBasePath":"\/budget-app\/api"/);
     ["DB_PASSWORD", "MYSQL_PASSWORD", "DB_SECRET_ARN", "AWS_SECRET", "token", "credentials"].forEach((secretWord) => {
       assert.ok(!config.body.includes(secretWord), `app-config.js leaked ${secretWord}`);
     });
@@ -147,6 +150,9 @@ async function run() {
     const api = await request(server, "/budget-app/api/budget-data?from=test");
     assert.strictEqual(api.statusCode, 200);
     assert.match(api.body, /ITOPEX001/);
+    assert.strictEqual((await request(server, "/budget-app/api/auth/me")).statusCode, 401);
+    assert.strictEqual((await request(server, "/budget-app/api/rbac/roles")).statusCode, 401);
+    assert.strictEqual((await request(server, "/api/budget-data")).statusCode, 404);
 
     assert.strictEqual((await request(server, "/budget-app/health/live")).statusCode, 200);
     assert.strictEqual((await request(server, "/budget-app/health/ready")).statusCode, 200);
@@ -171,6 +177,10 @@ async function run() {
   globalThis.APP_CONFIG = { basePath: "/budget-app" };
   assert.strictEqual(buildAppUrl("styles.css"), "/budget-app/styles.css");
   assert.strictEqual(buildApiUrl("budget-data"), "/budget-app/api/budget-data");
+  assert.strictEqual(getApiBasePath(), "/budget-app/api");
+  globalThis.APP_CONFIG = { appBasePath: "/apps/it-opex", apiBasePath: "/apps/it-opex/api" };
+  assert.strictEqual(buildAppUrl("styles.css"), "/apps/it-opex/styles.css");
+  assert.strictEqual(buildApiUrl("auth/login"), "/apps/it-opex/api/auth/login");
   delete globalThis.APP_CONFIG;
 
   console.log("Base-path routing and frontend URL tests passed.");

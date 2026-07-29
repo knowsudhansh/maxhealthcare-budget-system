@@ -128,7 +128,14 @@
 
   function getAppBasePath() {
     const config = typeof globalThis !== "undefined" ? globalThis.APP_CONFIG || {} : {};
-    return normalizeBasePath(config.basePath || "");
+    return normalizeBasePath(config.appBasePath || config.basePath || "");
+  }
+
+  function getApiBasePath() {
+    const config = typeof globalThis !== "undefined" ? globalThis.APP_CONFIG || {} : {};
+    const configured = normalizeBasePath(config.apiBasePath || "");
+    if (configured) return configured;
+    return buildAppUrl("api").replace(/\/$/g, "");
   }
 
   function trimSlashes(value) {
@@ -159,15 +166,15 @@
 
   function buildApiUrl(path) {
     const apiPath = trimSlashes(path).replace(/^api\/?/i, "");
-    const endpointPath = apiPath ? `api/${apiPath}` : "api";
+    const endpointPath = apiPath || "";
     const override = getApiBaseOverride();
-    if (override) return joinUrl(override, endpointPath);
+    if (override) return joinUrl(override, apiPath);
     try {
       if (typeof location !== "undefined" && location.protocol === "file:") {
-        return joinUrl("http://localhost:3001", endpointPath);
+        return joinUrl("http://localhost:3001/api", apiPath);
       }
     } catch (_error) {}
-    return buildAppUrl(endpointPath);
+    return joinUrl(getApiBasePath(), endpointPath);
   }
 
   const buttonActionLocks = typeof WeakSet === "function" ? new WeakSet() : null;
@@ -201,7 +208,8 @@
   const AppUrls = {
     app: buildAppUrl,
     api: buildApiUrl,
-    basePath: getAppBasePath
+    basePath: getAppBasePath,
+    apiBasePath: getApiBasePath
   };
 
   return {
@@ -213,6 +221,7 @@
     filterCodingValues,
     formatFinancialAmount,
     getAppBasePath,
+    getApiBasePath,
     normalizeBasePath,
     normalizeCodingKey,
     normalizeSearchKey,

@@ -20,6 +20,14 @@ When `APP_BASE_PATH=/budget-app`, existing API paths are available under the pre
 
 When `APP_BASE_PATH` is empty, root-mode paths continue unchanged.
 
+Phase 5B derives the API base path from `APP_BASE_PATH`. Examples:
+
+- root deployment: `/api/auth/login`
+- `/budget` deployment: `/budget/api/auth/login`
+- `/apps/it-opex` deployment: `/apps/it-opex/api/auth/login`
+
+When a non-root base path is configured, unprefixed `/api/*` is not a supported API bypass. Unprefixed `/health/live` and `/health/ready` remain available for runtime health checks.
+
 ## Endpoints
 
 | Method | Path | Purpose | Request | Response |
@@ -39,9 +47,22 @@ When `APP_BASE_PATH` is empty, root-mode paths continue unchanged.
 | `DELETE` | `/api/allocation-matrix/by-key` | Delete matrix by year/coding/owner/distribution. | Query params. | `{ message, affectedRows }` |
 | `DELETE` | `/api/allocation-matrix/:id` | Delete matrix by numeric id. | none | `{ message, affectedRows }` |
 | `GET` | `/api/health` | Health check. | none | `{ message, mysql }` |
+| `POST` | `/api/auth/login` | Authenticate with employee ID/email and password. | `{ identifier, password }` | `{ success, data: { user, expiresAt } }` plus HttpOnly cookie. |
+| `POST` | `/api/auth/logout` | Revoke current server-side session. | none | `{ success, data: { loggedOut } }` plus matching cookie clear. |
+| `GET` | `/api/auth/me` | Read authenticated user and authorization summary. | session cookie | `{ success, data: { user, roles, permissions, locations } }` |
+| `POST` | `/api/auth/change-password` | Change password for authenticated user. | `{ currentPassword, newPassword }` | `{ success, data: { changed } }` |
+| `GET` | `/api/rbac/roles` | List roles. | session with `role.view` | `{ success, data: { roles } }` |
+| `GET` | `/api/rbac/permissions` | List permissions. | session with `permission.view` | `{ success, data: { permissions } }` |
+| `GET` | `/api/rbac/roles/:roleId` | Read role details. | session with `role.view` | `{ success, data: { role } }` |
+| `GET` | `/api/rbac/roles/:roleId/permissions` | Read role permissions. | session with `role.view` | `{ success, data: { permissions } }` |
+| `PUT` | `/api/rbac/roles/:roleId/permissions` | Replace role-permission mappings. | session with `role.assign_permission`; `{ permissionCodes }` | `{ success, data: { role, permissions } }` |
+| `GET` | `/api/rbac/users/:userId/roles` | Read user role assignments. | session with `user.view` | `{ success, data: { roles } }` |
+| `PUT` | `/api/rbac/users/:userId/roles` | Replace user roles. | session with `user.assign_role`; `{ roleIds, validFrom?, validUntil? }` | `{ success, data: { roles } }` |
 | `GET` | `/health/live` | Liveness check for load balancers/process managers. | none | `{ status: "alive" }` |
 | `GET` | `/health/ready` | Readiness check; verifies database connectivity. | none | `200 { status: "ready", database: "connected" }` or `503 { status: "not-ready", database: "unavailable" }` |
 | `GET` | `/app-config.js` | Safe frontend runtime configuration. | none | `window.APP_CONFIG = { basePath }` |
+
+Phase 5B RBAC administration endpoints are protected. Existing financial APIs are not fully permission-protected until Phase 5D.
 
 ## Current Contract Risks
 

@@ -3,7 +3,7 @@ const fs = require("fs");
 const path = require("path");
 const XLSX = require("xlsx");
 const { google } = require("googleapis");
-const { loadEnvironment, normalizeBasePath } = require("./src/config/environment");
+const { getApiBasePath, loadEnvironment, normalizeBasePath } = require("./src/config/environment");
 const { loadDbSecret } = require("./src/config/secrets");
 const {
   closePool,
@@ -41,6 +41,7 @@ const { createLatestEstimateRouter } = require("./src/modules/latest-estimates/l
 const { createNextFyRouter } = require("./src/modules/next-fy/next-fy.routes");
 const { createTransferRouter } = require("./src/modules/transfers/transfer.routes");
 const { createAuthRouter } = require("./src/modules/auth/auth.routes");
+const { createRbacRouter } = require("./src/modules/rbac/rbac.routes");
 const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
@@ -98,6 +99,11 @@ function getCurrentBasePath() {
   }
 }
 
+function getCurrentApiBasePath() {
+  if (runtimeConfig) return runtimeConfig.apiBasePath || getApiBasePath(runtimeConfig.appBasePath || "");
+  return getApiBasePath(getCurrentBasePath());
+}
+
 // CORS
 app.use((req, res, next) => {
   const allowedOrigins = getAllowedOrigins();
@@ -139,9 +145,18 @@ app.use((req, res, next) => {
   }
 
   if (req.path.startsWith(`${basePath}/`)) {
+    req.appBasePathMatched = true;
     req.url = req.url.slice(basePath.length) || "/";
   }
 
+  return next();
+});
+
+app.use((req, res, next) => {
+  const basePath = getCurrentBasePath();
+  if (basePath && !req.appBasePathMatched && (req.path === "/api" || req.path.startsWith("/api/"))) {
+    return res.sendStatus(404);
+  }
   return next();
 });
 
@@ -187,6 +202,8 @@ app.get("/app-config.js", (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   return res.send(`window.APP_CONFIG = ${JSON.stringify({
     basePath,
+    appBasePath: basePath,
+    apiBasePath: getCurrentApiBasePath(),
     workflowFoundationEnabled,
     workflowActionsEnabled,
     workflowLockEnforcementEnabled,
@@ -226,6 +243,7 @@ app.get("/:asset", (req, res, next) => {
 });
 
 app.use("/api", createAuthRouter());
+app.use("/api", createRbacRouter());
 app.use("/api", createWorkflowRouter());
 app.use("/api", createLatestEstimateRouter());
 app.use("/api", createNextFyRouter());

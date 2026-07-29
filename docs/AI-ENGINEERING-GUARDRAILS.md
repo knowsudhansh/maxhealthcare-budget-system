@@ -296,3 +296,12 @@ Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature mod
 - Existing financial APIs must not be protected by frontend hiding alone; backend middleware must enforce every permission boundary in Phase 5B-5D.
 - Do not apply `013_authentication_rbac_foundation.sql` to UAT or Production without explicit approval.
 - Do not create default `admin/admin` credentials.
+- Never implement authorization through hardcoded role-name checks when permission resolution is available.
+- Never trust client-supplied roles, permissions, actor IDs, or assignment metadata.
+- RBAC administration APIs must require backend permission middleware.
+- Return `401` for missing authentication and `403` for insufficient permission.
+- Never assign `SUPER_ADMIN` unless the acting user is already `SUPER_ADMIN`.
+- Never remove the final active `SUPER_ADMIN`.
+- Never hardcode root API paths in frontend modules; use `AppUrls.api(...)`.
+- Never introduce an unprefixed `/api/*` bypass when `APP_BASE_PATH` is non-root.
+- Cookie creation and clearing must use the same base-path-aware `Path`.

@@ -33,6 +33,7 @@ function setSessionCookie(req, res, token) {
   res.setHeader("Set-Cookie", serializeCookie(config.cookieName, token, {
     secure: config.cookieSecure,
     sameSite: config.cookieSameSite,
+    path: config.cookiePath || "/",
     maxAgeSeconds: config.sessionTtlMinutes * 60
   }));
 }
