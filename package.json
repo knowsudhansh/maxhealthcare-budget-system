@@ -40,6 +40,7 @@
     "test:tidb": "node tests/tidb-connection.test.js",
     "test:tidb-diagnostics": "node tests/tidb-diagnostics.test.js",
     "test:docker": "node tests/docker-containerization.test.js",
+    "test:k8s": "node tests/kubernetes-deployment.test.js",
     "test:formatting": "node tests/financial-formatting.test.js",
     "test:planner-ui": "node tests/planner-coding-ui.test.js",
     "test:clearable-fields": "node tests/clearable-fields.test.js",

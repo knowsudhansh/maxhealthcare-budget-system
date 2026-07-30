@@ -301,3 +301,25 @@ Until migrations and deployment automation exist:
 - Tag code before UAT/Production deployments.
 - Keep prior server artifact available.
 - Verify `/api/health`, `/api/budget-data`, `/api/allocation-data`, `/api/allocation-matrix` after rollback.
+
+## Kubernetes Dev Deployment Repair
+
+The Kubernetes `dev` namespace uses the manifest set in `k8s/dev/` and the detailed runbooks:
+
+- `docs/62-kubernetes-dev-deployment.md`
+- `docs/63-kubernetes-environment-and-secrets.md`
+- `docs/64-kubernetes-base-path-validation.md`
+
+The deployment must preserve `/budget-app` at the ALB and set `APP_BASE_PATH=/budget-app` in `budget-app-config`. Secrets must be supplied by the externally managed `budget-app-secrets` Secret, not committed manifests.
+
+Validation order:
+
+1. Required environment variables are present.
+2. Pod process starts.
+3. TiDB connectivity succeeds.
+4. Pod becomes Ready.
+5. Service endpoints exist.
+6. Internal Service health works.
+7. ALB health works.
+8. `/budget-app` UI and `/budget-app/api/*` routes work.
+9. Unprefixed `/api/*` remains blocked in prefixed mode.

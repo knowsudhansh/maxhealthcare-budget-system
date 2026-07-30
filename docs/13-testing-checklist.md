@@ -497,3 +497,13 @@ npm run location:analyze-existing
 ```
 
 Coverage includes direct and hierarchy assignments, explicit global access, expired/future assignment exclusion, disabled-location exclusion, location middleware, protected APIs, root/subpath/nested route behavior, unprefixed bypass prevention, and location analysis over existing business data.
+
+## Kubernetes Dev Deployment
+
+Run:
+
+```bash
+npm run test:k8s
+```
+
+Coverage verifies that `k8s/dev` manifests keep DB credentials and `AUTH_SESSION_SECRET` in Secret references, set `APP_BASE_PATH=/budget-app`, mount the TiDB CA as a file, use `/budget-app/health/ready` for readiness, use `/health/live` for liveness, preserve the ALB prefix, and avoid committed Secret data.

@@ -28,6 +28,7 @@ assert.match(dockerfile, /mkdir -p "\/app\/Server data"/);
 
 [
   ".env",
+  ".env.backup",
   ".env.local",
   ".env.*.local",
   ".env.docker",

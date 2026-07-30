@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: budget-app-config
+  namespace: dev
+  labels:
+    app: budget-app
+data:
+  APP_ENV: "development"
+  NODE_ENV: "production"
+  APP_BASE_PATH: "/budget-app"
+  HOST: "0.0.0.0"
+  PORT: "3000"
+  DB_PORT: "4000"
+  DB_SSL: "true"
+  DB_SSL_CA: "/run/secrets/tidb-ca.pem"
+  DB_CONNECTION_LIMIT: "10"
+  DB_CONNECT_TIMEOUT_MS: "10000"
+  AUTH_COOKIE_NAME: "max_it_opex_session"
+  AUTH_COOKIE_SECURE: "true"
+  AUTH_COOKIE_SAME_SITE: "Lax"
+  AUTH_TRUST_PROXY: "true"
+  CSRF_ENABLED: "false"
+  ALLOWED_ORIGINS: "https://internal-k8s-devinternal-7db8f70de4-1351630188.ap-south-1.elb.amazonaws.com"
+  ENABLE_EXCEL_MIRROR: "false"
+  ENABLE_GOOGLE_SHEETS_SYNC: "false"
+  WORKFLOW_FOUNDATION_ENABLED: "true"
+  WORKFLOW_ACTIONS_ENABLED: "true"
+  WORKFLOW_LOCK_ENFORCEMENT_ENABLED: "false"
+  WORKFLOW_APPROVAL_QUEUE_ENABLED: "true"
+  LATEST_ESTIMATE_ENABLED: "true"
+  LE_WORKFLOW_ENFORCEMENT_ENABLED: "true"
+  LE_ALLOW_LEGACY_BUDGET_SOURCE: "false"
+  NEXT_FY_BUDGET_ENABLED: "true"
+  NEXT_FY_WORKFLOW_ENFORCEMENT_ENABLED: "true"
+  NEXT_FY_ALLOW_LEGACY_SOURCE: "false"
+  TRANSFER_MODULE_ENABLED: "true"
+  TRANSFER_POSTING_ENABLED: "true"
+  TRANSFER_REVERSAL_ENABLED: "true"

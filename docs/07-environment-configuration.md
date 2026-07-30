@@ -258,3 +258,17 @@ Phase 5C adds location permissions to the RBAC registry. Rerun `npm run seed:rba
 - `location.access_all`
 
 `npm run location:analyze-existing` is read-only and reports current descriptive location values without changing records.
+
+## Kubernetes Dev Deployment
+
+For the `dev` namespace, Kubernetes must provide all required startup variables. The container image supplies `NODE_ENV`, `PORT`, and `HOST`, but application validation still requires `APP_ENV` and database configuration.
+
+Use `k8s/dev/configmap.yaml` for non-sensitive values and an externally managed `budget-app-secrets` Secret for `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `AUTH_SESSION_SECRET`, and `tidb-ca.pem`.
+
+The expected deployment prefix is:
+
+```text
+APP_BASE_PATH=/budget-app
+```
+
+`API_BASE_PATH` is derived by the app as `/budget-app/api`; do not configure it separately.

@@ -67,3 +67,9 @@ Logout clears the cookie using the same path as login.
 ## Frontend Rule
 
 All frontend requests must use `AppUrls.api(...)` or `buildApiUrl(...)`. Feature code must not hardcode root-relative `/api/...` paths or deployment prefixes.
+
+## Kubernetes Dev Rule
+
+The Kubernetes dev ALB must preserve `/budget-app`; it must not rewrite the prefix to `/`. With `APP_BASE_PATH=/budget-app`, the application accepts `/budget-app/api/*`, `/budget-app/health/*`, and `/budget-app/app-config.js`.
+
+Unprefixed `/health/live` remains available for container liveness. Unprefixed `/api/*` remains blocked in prefixed mode.

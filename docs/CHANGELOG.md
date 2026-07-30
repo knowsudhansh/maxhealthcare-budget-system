@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Kubernetes Dev Deployment Repair
+
+- Added `k8s/dev` ConfigMap, Deployment, Service, Ingress, kustomization, and non-applyable Secret key checklist for the Kubernetes `dev` namespace.
+- Injected required application startup variables through Kubernetes ConfigMap and Secret references without committing secret values.
+- Set `APP_BASE_PATH=/budget-app` and documented prefix-preserving ALB routing.
+- Added Kubernetes manifest tests for environment split, probes, ports, Secret references, and no rewrite-based API bypass.
+- Existing formulas changed: No.
+
 ### Phase 5B RBAC Authorization And Base Path
 
 - Added database-backed RBAC role and permission registry.
