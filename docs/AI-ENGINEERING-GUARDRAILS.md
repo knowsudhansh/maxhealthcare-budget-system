@@ -305,3 +305,9 @@ Frontend and backend URLs must be generated from `APP_BASE_PATH`. No feature mod
 - Never hardcode root API paths in frontend modules; use `AppUrls.api(...)`.
 - Never introduce an unprefixed `/api/*` bypass when `APP_BASE_PATH` is non-root.
 - Cookie creation and clearing must use the same base-path-aware `Path`.
+- Empty location assignments must never imply global access.
+- Global location access must require `location.access_all`.
+- Never trust browser-supplied `locationScope`, `assigned_by`, user IDs, or location IDs as authorization proof.
+- Future financial endpoints must load resource location server-side before authorizing update/delete/submit/approve.
+- Bulk writes must reject the entire operation when any requested location is unauthorized.
+- Exports must apply location authorization before data leaves the server.

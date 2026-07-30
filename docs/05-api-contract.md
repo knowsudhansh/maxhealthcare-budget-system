@@ -58,11 +58,23 @@ When a non-root base path is configured, unprefixed `/api/*` is not a supported 
 | `PUT` | `/api/rbac/roles/:roleId/permissions` | Replace role-permission mappings. | session with `role.assign_permission`; `{ permissionCodes }` | `{ success, data: { role, permissions } }` |
 | `GET` | `/api/rbac/users/:userId/roles` | Read user role assignments. | session with `user.view` | `{ success, data: { roles } }` |
 | `PUT` | `/api/rbac/users/:userId/roles` | Replace user roles. | session with `user.assign_role`; `{ roleIds, validFrom?, validUntil? }` | `{ success, data: { roles } }` |
+| `GET` | `/api/locations` | List location master records. | session with `location.view` | `{ success, data: { locations } }` |
+| `GET` | `/api/locations/tree` | Read location hierarchy tree. | session with `location.view` | `{ success, data: { locations } }` |
+| `GET` | `/api/locations/:locationId` | Read one location. | session with `location.view` | `{ success, data: { location } }` |
+| `POST` | `/api/locations` | Create one location master record. | session with `location.create`; `{ code, name, parentLocationId?, status? }` | `{ success, data: { location } }` |
+| `PATCH` | `/api/locations/:locationId` | Update one location. | session with `location.update`; partial location payload | `{ success, data: { location } }` |
+| `GET` | `/api/location-access/me` | Read authenticated user's trusted location scope. | authenticated session | `{ success, data: { locationScope } }` |
+| `GET` | `/api/location-access/users/:userId` | Read user-location assignments. | session with `location.view_assignments` | `{ success, data: { assignments } }` |
+| `PUT` | `/api/location-access/users/:userId` | Replace user-location assignments. | session with `location.assign`; `{ assignments }` | `{ success, data: { assignments } }` |
+| `POST` | `/api/location-access/users/:userId/assignments` | Add/update one user-location assignment. | session with `location.assign`; assignment payload | `{ success, data: { assignments } }` |
+| `DELETE` | `/api/location-access/users/:userId/assignments/:assignmentId` | Remove a user-location assignment. | session with `location.assign` | `{ success, data: { removed } }` |
 | `GET` | `/health/live` | Liveness check for load balancers/process managers. | none | `{ status: "alive" }` |
 | `GET` | `/health/ready` | Readiness check; verifies database connectivity. | none | `200 { status: "ready", database: "connected" }` or `503 { status: "not-ready", database: "unavailable" }` |
 | `GET` | `/app-config.js` | Safe frontend runtime configuration. | none | `window.APP_CONFIG = { basePath }` |
 
 Phase 5B RBAC administration endpoints are protected. Existing financial APIs are not fully permission-protected until Phase 5D.
+
+Phase 5C location administration endpoints are protected. Existing financial APIs are not yet location-filtered until Phase 5D.
 
 ## Current Contract Risks
 

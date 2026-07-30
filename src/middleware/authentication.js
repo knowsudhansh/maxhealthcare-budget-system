@@ -7,6 +7,7 @@ const {
   forbiddenError,
   resolveAuthorizationContext
 } = require("../modules/rbac/rbac.service");
+const { resolveUserLocationScope } = require("../modules/location-access/location-access.service");
 
 function sessionTokenFromRequest(req) {
   const config = getAuthConfig(req.app && req.app.locals ? req.app.locals.runtimeConfig : null);
@@ -25,8 +26,11 @@ async function optionalAuthentication(req, _res, next) {
         user: session.user,
         roles: authorization ? authorization.roles : [],
         permissions: authorization ? authorization.permissions : [],
-        locations: []
+        locations: [],
+        locationScope: null
       };
+      req.auth.locationScope = await resolveUserLocationScope(session.user.id, req.auth);
+      req.auth.locations = req.auth.locationScope.effectiveLocationCodes;
     }
     return next();
   } catch (error) {

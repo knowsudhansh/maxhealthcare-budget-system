@@ -246,3 +246,15 @@ npm run test:rbac
 ```
 
 `seed:rbac` is idempotent and must be run only against an approved development/UAT target. It does not create users or credentials.
+
+Phase 5C adds location permissions to the RBAC registry. Rerun `npm run seed:rbac` in approved development/UAT after deployment so the registry contains:
+
+- `location.view`
+- `location.create`
+- `location.update`
+- `location.disable`
+- `location.assign`
+- `location.view_assignments`
+- `location.access_all`
+
+`npm run location:analyze-existing` is read-only and reports current descriptive location values without changing records.

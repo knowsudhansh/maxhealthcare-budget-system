@@ -27,14 +27,17 @@ Permission codes are lower-case, module-scoped, and stable, for example:
 - `transfer.post`
 - `role.assign_permission`
 - `user.assign_role`
+- `location.view`
+- `location.assign`
+- `location.access_all`
 - `security.manage`
 
 The complete registry lives in `src/modules/rbac/rbac.constants.js`.
 
 ## Matrix Summary
 
-- `SUPER_ADMIN`: all seeded permissions.
-- `FINANCE_ADMIN`: finance, budget, workflow, LE, Next FY, transfer, report, and selected user/role visibility.
+- `SUPER_ADMIN`: all seeded permissions, including `location.access_all`.
+- `FINANCE_ADMIN`: finance, budget, workflow, LE, Next FY, transfer, report, selected user/role visibility, and explicit `location.access_all`.
 - `BUDGET_ADMIN`: planner, allocation, LE, Next FY, transfer operations, reports, and workflow submit.
 - `LOCATION_FINANCE_USER`: dashboard and read/update-oriented finance operations; location scoping is Phase 5C.
 - `BUDGET_SUBMITTER`: planner create/update/submit and workflow submit.
@@ -51,3 +54,5 @@ The complete registry lives in `src/modules/rbac/rbac.constants.js`.
 - Do not remove unknown custom roles during seed.
 - Do not assign `SUPER_ADMIN` unless the acting user is already `SUPER_ADMIN`.
 - Do not remove the final active `SUPER_ADMIN`.
+- Do not infer global location access from empty assignments.
+- Do not grant `GLOBAL` through `user_locations`; use `location.access_all`.

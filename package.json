@@ -49,7 +49,9 @@
     "migrate:auth": "node scripts/apply-migration.js --file=013_authentication_rbac_foundation.sql",
     "test:migration-runner": "node tests/migration-runner.test.js",
     "seed:rbac": "node scripts/seed-rbac.js",
-    "test:rbac": "node tests/rbac-authorization.test.js"
+    "test:rbac": "node tests/rbac-authorization.test.js",
+    "location:analyze-existing": "node scripts/analyze-existing-locations.js",
+    "test:location-access": "node tests/location-access.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-secrets-manager": "^3.1085.0",

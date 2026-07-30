@@ -13,6 +13,16 @@
 - Added focused RBAC and base-path tests.
 - Existing formulas changed: No.
 
+### Phase 5C Location-Based Access Control
+
+- Added location access permissions to the RBAC registry.
+- Added trusted location scope resolution for direct, hierarchy, global, and no-access modes.
+- Added location authorization middleware helpers for future Phase 5D financial endpoints.
+- Added protected location master and user-location assignment APIs.
+- Added read-only existing-location analysis command.
+- Added Phase 5C location access tests and documentation.
+- Existing formulas changed: No.
+
 ### TiDB Diagnostics Hardening
 
 - Added safe database-error diagnostics with verification/startup stages.

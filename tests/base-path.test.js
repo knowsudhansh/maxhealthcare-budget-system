@@ -152,7 +152,10 @@ async function run() {
     assert.match(api.body, /ITOPEX001/);
     assert.strictEqual((await request(server, "/budget-app/api/auth/me")).statusCode, 401);
     assert.strictEqual((await request(server, "/budget-app/api/rbac/roles")).statusCode, 401);
+    assert.strictEqual((await request(server, "/budget-app/api/locations")).statusCode, 401);
+    assert.strictEqual((await request(server, "/budget-app/api/location-access/me")).statusCode, 401);
     assert.strictEqual((await request(server, "/api/budget-data")).statusCode, 404);
+    assert.strictEqual((await request(server, "/api/locations")).statusCode, 404);
 
     assert.strictEqual((await request(server, "/budget-app/health/live")).statusCode, 200);
     assert.strictEqual((await request(server, "/budget-app/health/ready")).statusCode, 200);

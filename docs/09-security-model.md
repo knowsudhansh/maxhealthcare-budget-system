@@ -2,7 +2,7 @@
 
 ## Current State
 
-No authentication or authorization exists.
+Authentication and RBAC foundations exist. Full financial-module authorization is still pending.
 
 Current security controls:
 
@@ -12,11 +12,15 @@ Current security controls:
 - Phase 3.1 supports AWS Secrets Manager for DB credentials.
 - Phase 3.1 restricts CORS by `ALLOWED_ORIGINS`.
 - Phase 3.1 requires DB TLS in UAT and Production.
+- Phase 5A adds server-side authentication and HttpOnly sessions.
+- Phase 5B adds database-backed RBAC for administration APIs.
+- Phase 5C adds location-scope resolution and protected location administration APIs.
 
 Current gaps:
 
-- No login.
-- No RBAC.
+- No login UI.
+- Full business-module authorization is not yet applied.
+- Location-scoped financial query enforcement is pending Phase 5D.
 - No rate limiting.
 - No security headers.
 - No request IDs.
@@ -53,7 +57,28 @@ Database credentials are loaded server-side only. The app must not log DB passwo
 - Logs must not include credentials, cookies, Authorization headers, DB secrets, AWS credentials, or full sensitive payloads.
 - Audit events redact sensitive fields before persistence.
 
-Authentication, RBAC, and chatbot access controls are still not implemented.
+Full financial-module RBAC, location-scoped financial filters, and chatbot access controls are still not implemented.
+
+## Phase 5 Location Authorization
+
+Location access is resolved from server-side assignments and permissions only.
+
+```text
+validated session
+-> authenticated user
+-> permissions
+-> active user_locations
+-> active locations
+-> hierarchy descendants where applicable
+```
+
+Rules:
+
+- Browser-supplied `locationScope` is never authoritative.
+- Empty assignments do not imply global access.
+- Global location access requires explicit `location.access_all`.
+- `GLOBAL` cannot be granted through `user_locations`.
+- Existing financial APIs are not fully location-filtered until Phase 5D.
 
 ## Base-Path Runtime Config Security
 

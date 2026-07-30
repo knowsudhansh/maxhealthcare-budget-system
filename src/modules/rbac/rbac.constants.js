@@ -21,6 +21,13 @@ const PERMISSIONS = Object.freeze([
   ["planner.approve", "planner", "approve", "Approve budget records."],
   ["allocation.view", "allocation", "view", "View allocation records."],
   ["allocation.manage", "allocation", "manage", "Manage allocations."],
+  ["location.view", "location", "view", "View location master data."],
+  ["location.create", "location", "create", "Create location master records."],
+  ["location.update", "location", "update", "Update location master records."],
+  ["location.disable", "location", "disable", "Disable location master records."],
+  ["location.assign", "location", "assign", "Assign location access to users."],
+  ["location.view_assignments", "location", "view_assignments", "View user-location assignments."],
+  ["location.access_all", "location", "access_all", "Access all active locations."],
   ["location_summary.view", "location_summary", "view", "View location summaries."],
   ["unit_budget.view", "unit_budget", "view", "View unit budget reports."],
   ["comparison.view", "comparison", "view", "View budget comparisons."],
@@ -134,19 +141,20 @@ const ROLE_PERMISSION_MATRIX = Object.freeze({
     "dashboard.view", "planner.view", "planner.create", "planner.update", "planner.delete", "planner.submit",
     "allocation.view", "allocation.manage", "latest_estimate.view", "latest_estimate.manage", "latest_estimate.submit",
     "next_fy.view", "next_fy.create", "next_fy.update", "next_fy.submit", "transfer.view", "transfer.create",
-    "transfer.update", "transfer.submit", "transfer.cancel", "report.view", "report.export", "workflow.view", "workflow.submit"
+    "transfer.update", "transfer.submit", "transfer.cancel", "report.view", "report.export", "workflow.view", "workflow.submit",
+    "location.view", "location.view_assignments"
   ],
   [ROLE_CODES.LOCATION_FINANCE_USER]: [
     "dashboard.view", "planner.view", "planner.create", "planner.update", "planner.submit", "allocation.view",
     "location_summary.view", "unit_budget.view", "comparison.view", "utilization.view", "latest_estimate.view",
-    "next_fy.view", "transfer.view", "report.view", "workflow.view"
+    "next_fy.view", "transfer.view", "report.view", "workflow.view", "location.view"
   ],
   [ROLE_CODES.BUDGET_SUBMITTER]: ["planner.view", "planner.create", "planner.update", "planner.submit", "workflow.view", "workflow.submit"],
   [ROLE_CODES.BUDGET_APPROVER]: ["planner.view", "planner.approve", "workflow.view", "workflow.approve", "workflow.reject"],
   [ROLE_CODES.TRANSFER_REQUESTER]: ["transfer.view", "transfer.create", "transfer.update", "transfer.submit", "transfer.cancel"],
   [ROLE_CODES.TRANSFER_APPROVER]: ["transfer.view", "transfer.approve", "transfer.reject", "transfer.post"],
   [ROLE_CODES.REPORT_VIEWER]: ["dashboard.view", "report.view", "report.export"],
-  [ROLE_CODES.AUDITOR]: ["dashboard.view", "workflow.view", "transfer.view", "report.view", "audit.view"]
+  [ROLE_CODES.AUDITOR]: ["dashboard.view", "workflow.view", "transfer.view", "report.view", "audit.view", "location.view"]
 });
 
 module.exports = {

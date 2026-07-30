@@ -42,6 +42,7 @@ const { createNextFyRouter } = require("./src/modules/next-fy/next-fy.routes");
 const { createTransferRouter } = require("./src/modules/transfers/transfer.routes");
 const { createAuthRouter } = require("./src/modules/auth/auth.routes");
 const { createRbacRouter } = require("./src/modules/rbac/rbac.routes");
+const { createLocationAccessRouter } = require("./src/modules/location-access/location-access.routes");
 const { attachBudgetWorkflowStatuses, assertBudgetRecordMutable } = require("./src/modules/workflow/workflow.service");
 
 const app = express();
@@ -244,6 +245,7 @@ app.get("/:asset", (req, res, next) => {
 
 app.use("/api", createAuthRouter());
 app.use("/api", createRbacRouter());
+app.use("/api", createLocationAccessRouter());
 app.use("/api", createWorkflowRouter());
 app.use("/api", createLatestEstimateRouter());
 app.use("/api", createNextFyRouter());

@@ -486,3 +486,14 @@ npm run test:base-path
 Coverage includes RBAC registry seeding, permission middleware, effective permission resolution, root/prefixed/nested route handling, auth and RBAC routes below `APP_BASE_PATH`, cookie path matching, and prevention of unprefixed `/api/*` bypass when a non-root base path is configured.
 
 Manual authenticated RBAC UAT remains blocked until the Phase 5A bootstrap administrator is created with safe credentials.
+
+## Phase 5C Location Access
+
+Run:
+
+```bash
+npm run test:location-access
+npm run location:analyze-existing
+```
+
+Coverage includes direct and hierarchy assignments, explicit global access, expired/future assignment exclusion, disabled-location exclusion, location middleware, protected APIs, root/subpath/nested route behavior, unprefixed bypass prevention, and location analysis over existing business data.
